@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#16213e" />
+    <title>Кинг — Telegram Mini App</title>
+    <link rel="stylesheet" href="./src/styles.css" />
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  </head>
+  <body>
+    <div id="app" class="app-shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Telegram Mini App</p>
+          <h1>Кинг</h1>
+        </div>
+        <button id="rulesButton" class="ghost-button" type="button">Правила</button>
+      </header>
+
+      <main class="game-layout" aria-live="polite">
+        <section class="score-panel" aria-label="Счет и контракт">
+          <div class="contract-card">
+            <span class="label">Контракт</span>
+            <strong id="contractTitle">—</strong>
+            <p id="contractDescription">Загрузка партии…</p>
+          </div>
+          <div class="round-progress">
+            <span id="roundLabel">Раунд 1/6</span>
+            <div class="progress-track"><span id="roundProgress"></span></div>
+          </div>
+          <div id="scoreBoard" class="score-board"></div>
+        </section>
+
+        <section class="table" aria-label="Игровой стол">
+          <div id="players" class="players"></div>
+          <div id="trickArea" class="trick-area"></div>
+          <div id="statusText" class="status-text">Нажмите «Новая партия», чтобы начать.</div>
+        </section>
+
+        <section class="hand-panel" aria-label="Ваши карты">
+          <div class="actions">
+            <button id="newGameButton" class="primary-button" type="button">Новая партия</button>
+            <button id="hintButton" class="secondary-button" type="button">Подсказка</button>
+          </div>
+          <div id="hand" class="hand"></div>
+        </section>
+      </main>
+
+      <dialog id="rulesDialog" class="rules-dialog">
+        <form method="dialog">
+          <h2>Как играть</h2>
+          <p>Это быстрая адаптация «Кинга» для одного игрока против трех ботов. Игра идет контрактами: сначала штрафные задания, затем взятки на плюс.</p>
+          <ul>
+            <li>Ходите картой той же масти, если она есть.</li>
+            <li>Взятку забирает старшая карта масти первого хода.</li>
+            <li>В штрафных контрактах избегайте опасных карт и взяток.</li>
+            <li>В положительном контракте каждая взятка приносит очки.</li>
+          </ul>
+          <button class="primary-button" value="close">Понятно</button>
+        </form>
+      </dialog>
+    </div>
+    <script type="module" src="./src/game.js"></script>
+  </body>
+</html>

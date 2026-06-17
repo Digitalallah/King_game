@@ -11,13 +11,81 @@ const RANKS = [
   { id: 'J', value: 11 }, { id: 'Q', value: 12 }, { id: 'K', value: 13 }, { id: 'A', value: 14 },
 ];
 const PLAYERS = ['Вы', 'Лиса', 'Барон', 'Сова'];
+const CONTRACT_TYPES = [
+  {
+    id: 'tricks',
+    title: 'Не брать взятки',
+    positiveTitle: 'Брать взятки',
+    description: 'Каждая взятка: −20 очков.',
+    positiveDescription: 'Каждая взятка: +20 очков.',
+    points: trick => (trick ? 20 : 0),
+  },
+  {
+    id: 'hearts',
+    title: 'Не брать червей',
+    positiveTitle: 'Брать червей',
+    description: 'Каждая черва во взятке: −20 очков. Нельзя начинать с червей, пока есть другие масти.',
+    positiveDescription: 'Каждая черва во взятке: +20 очков. Нельзя начинать с червей, пока есть другие масти.',
+    points: trick => 20 * trick.filter(card => card.suit.id === 'hearts').length,
+    restrictHeartLead: true,
+  },
+  {
+    id: 'boys',
+    title: 'Не брать мальчиков',
+    positiveTitle: 'Брать мальчиков',
+    description: 'Каждый король и валет: −20 очков.',
+    positiveDescription: 'Каждый король и валет: +20 очков.',
+    points: trick => 20 * trick.filter(card => ['K', 'J'].includes(card.rank.id)).length,
+  },
+  {
+    id: 'girls',
+    title: 'Не брать девочек',
+    positiveTitle: 'Брать девочек',
+    description: 'Каждая дама: −40 очков.',
+    positiveDescription: 'Каждая дама: +40 очков.',
+    points: trick => 40 * trick.filter(card => card.rank.id === 'Q').length,
+  },
+  {
+    id: 'last-two',
+    title: 'Не брать две последние взятки',
+    positiveTitle: 'Брать две последние взятки',
+    description: 'Седьмая и восьмая взятки: −80 очков каждая.',
+    positiveDescription: 'Седьмая и восьмая взятки: +80 очков каждая.',
+    points: (_trick, trickNumber) => (trickNumber >= 7 ? 80 : 0),
+  },
+  {
+    id: 'king',
+    title: 'Не брать Кинга',
+    positiveTitle: 'Брать Кинга',
+    description: 'Король червей: −160 очков. Нельзя начинать с червей, пока есть другие масти.',
+    positiveDescription: 'Король червей: +160 очков. Нельзя начинать с червей, пока есть другие масти.',
+    points: trick => trick.some(card => card.rank.id === 'K' && card.suit.id === 'hearts') ? 160 : 0,
+    restrictHeartLead: true,
+  },
+  {
+    id: 'mishmash',
+    title: 'Ералаш: не брать ничего',
+    positiveTitle: 'Ералаш: брать всё',
+    description: 'Суммируются штрафы за взятки, червей, мальчиков, девочек, две последние взятки и Кинга.',
+    positiveDescription: 'Суммируются плюсы за взятки, червей, мальчиков, девочек, две последние взятки и Кинга.',
+    points: (trick, trickNumber) => CONTRACT_TYPES.slice(0, 6).reduce((sum, contract) => sum + contract.points(trick, trickNumber), 0),
+    restrictHeartLead: true,
+  },
+];
+
 const CONTRACTS = [
-  { title: 'Не брать взятки', description: 'Каждая взятка: −2 очка.', score: trick => -2 },
-  { title: 'Не брать червей', description: 'Каждая черва во взятке: −2 очка.', score: trick => -2 * trick.filter(card => card.suit.id === 'hearts').length },
-  { title: 'Не брать дам', description: 'Каждая дама: −4 очка.', score: trick => -4 * trick.filter(card => card.rank.id === 'Q').length },
-  { title: 'Не брать королей', description: 'Каждый король: −4 очка.', score: trick => -4 * trick.filter(card => card.rank.id === 'K').length },
-  { title: 'Не брать Кинга', description: 'Король червей: −16 очков.', score: trick => trick.some(card => card.rank.id === 'K' && card.suit.id === 'hearts') ? -16 : 0 },
-  { title: 'Брать взятки', description: 'Каждая взятка: +3 очка. Финальный позитивный контракт.', score: trick => 3 },
+  ...CONTRACT_TYPES.map(contract => ({
+    ...contract,
+    phase: 'penalty',
+    score: (trick, trickNumber) => -contract.points(trick, trickNumber),
+  })),
+  ...CONTRACT_TYPES.map(contract => ({
+    ...contract,
+    phase: 'positive',
+    title: contract.positiveTitle,
+    description: contract.positiveDescription,
+    score: (trick, trickNumber) => contract.points(trick, trickNumber),
+  })),
 ];
 
 const state = {
@@ -27,6 +95,7 @@ const state = {
   hands: [],
   scores: [0, 0, 0, 0],
   taken: [0, 0, 0, 0],
+  trickNumber: 1,
   currentTrick: [],
   running: false,
   message: '',
@@ -85,6 +154,7 @@ function startRound() {
   const deck = shuffle(createDeck());
   state.hands = [0, 1, 2, 3].map(index => sortHand(deck.slice(index * 8, index * 8 + 8)));
   state.taken = [0, 0, 0, 0];
+  state.trickNumber = 1;
   state.currentTrick = [];
   state.turn = state.leader;
   state.message = `${PLAYERS[state.turn]} начинает контракт.`;
@@ -99,7 +169,12 @@ function sortHand(hand) {
 function legalCards(player) {
   const hand = state.hands[player];
   const leadSuit = state.currentTrick[0]?.card.suit.id;
-  if (!leadSuit) return hand;
+  if (!leadSuit) {
+    const contract = CONTRACTS[state.round];
+    if (!contract?.restrictHeartLead) return hand;
+    const nonHearts = hand.filter(card => card.suit.id !== 'hearts');
+    return nonHearts.length ? nonHearts : hand;
+  }
   const sameSuit = hand.filter(card => card.suit.id === leadSuit);
   return sameSuit.length ? sameSuit : hand;
 }
@@ -108,7 +183,9 @@ function playCard(player, cardId) {
   if (!state.running || state.turn !== player) return;
   const legal = legalCards(player);
   if (!legal.some(card => card.id === cardId)) {
-    state.message = 'Нужно ходить в масть, если она есть.';
+    state.message = state.currentTrick.length === 0
+      ? 'В этом контракте нельзя начинать с червей, пока есть другие масти.'
+      : 'Нужно ходить в масть, если она есть.';
     render();
     tg?.HapticFeedback?.notificationOccurred('error');
     return;
@@ -127,7 +204,7 @@ function chooseBotCard(player) {
   const legal = legalCards(player);
   const contract = CONTRACTS[state.round];
   const leadSuit = state.currentTrick[0]?.card.suit.id;
-  const risky = card => Math.abs(contract.score([card]));
+  const risky = card => Math.abs(contract.score([card], state.trickNumber));
   if (!leadSuit) return [...legal].sort((a, b) => risky(a) - risky(b) || a.rank.value - b.rank.value)[0];
   const winningValue = Math.max(...state.currentTrick.filter(t => t.card.suit.id === leadSuit).map(t => t.card.rank.value));
   const safe = legal.filter(card => card.suit.id !== leadSuit || card.rank.value < winningValue);
@@ -146,13 +223,14 @@ function resolveTrick() {
     .sort((a, b) => b.card.rank.value - a.card.rank.value)[0];
   const winner = winnerPlay.player;
   const trickCards = state.currentTrick.map(play => play.card);
-  const delta = CONTRACTS[state.round].score(trickCards);
+  const delta = CONTRACTS[state.round].score(trickCards, state.trickNumber);
   state.scores[winner] += delta;
   state.taken[winner] += 1;
   state.leader = winner;
   state.turn = winner;
   state.currentTrick = [];
-  state.message = `${PLAYERS[winner]} забирает взятку (${delta > 0 ? '+' : ''}${delta}).`;
+  state.message = `${PLAYERS[winner]} забирает взятку ${state.trickNumber} (${delta > 0 ? '+' : ''}${delta}).`;
+  state.trickNumber += 1;
   if (state.hands.every(hand => hand.length === 0)) {
     state.round += 1;
     if (state.round >= CONTRACTS.length) finishGame();

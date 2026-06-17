@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#000000" />
+    <title>Кинг — Telegram Mini App</title>
+    <link rel="stylesheet" href="./src/styles.css" />
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  </head>
+  <body>
+    <main class="miniapp-shell" aria-label="Telegram Mini App wrapper for the original King game">
+      <section id="fallback" class="fallback" hidden>
+        <h1>Нужна оригинальная сборка игры</h1>
+        <p>
+          Чтобы сохранить графику и правила точно как в оригинале, этот Mini App запускает
+          неизмененную оригинальную игру внутри Telegram-адаптера.
+        </p>
+        <ol>
+          <li>Поместите оригинальные файлы игры в папку <code>original/</code>.</li>
+          <li>Главный файл должен быть доступен как <code>original/index.html</code>.</li>
+          <li>Перезапустите локальный сервер или обновите HTTPS-деплой Mini App.</li>
+        </ol>
+      </section>
+
+      <iframe
+        id="gameFrame"
+        class="game-frame"
+        title="Оригинальная игра Кинг"
+        src="./original/index.html"
+        allow="autoplay; fullscreen; clipboard-read; clipboard-write; encrypted-media; gamepad"
+      ></iframe>
+    </main>
+    <script type="module" src="./src/game.js"></script>
+  </body>
+</html>

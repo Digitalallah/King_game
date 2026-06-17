@@ -301,7 +301,7 @@ function renderHand() {
 }
 
 function cardHtml(card, className, label = '', attrs = '') {
-  return `<button class="card ${className} ${card.suit.color}" ${attrs} type="button" aria-label="${label} ${formatCard(card)}">
+  return `<button class="card ${className} ${card.suit.color}" data-corner="${card.rank.id}${card.suit.symbol}" ${attrs} type="button" aria-label="${label} ${formatCard(card)}">
     <span>${card.rank.id}</span><strong>${card.suit.symbol}</strong>
   </button>`;
 }

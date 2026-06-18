@@ -15,7 +15,10 @@
           <p class="eyebrow">Telegram Mini App</p>
           <h1>Кинг</h1>
         </div>
-        <button id="rulesButton" class="ghost-button" type="button">Правила</button>
+        <div class="topbar-actions">
+          <button id="portraitButton" class="ghost-button" type="button">Портрет</button>
+          <button id="rulesButton" class="ghost-button" type="button">Правила</button>
+        </div>
       </header>
 
       <main class="game-layout" aria-live="polite">
@@ -46,6 +49,15 @@
           <div id="hand" class="hand"></div>
         </section>
       </main>
+
+      <dialog id="portraitDialog" class="portrait-dialog">
+        <form method="dialog">
+          <h2>Выберите портрет</h2>
+          <p>Пиксельные герои для вас и ботов: животные, странные типы и сияющие красотки.</p>
+          <div id="portraitGrid" class="portrait-grid" aria-label="Выбор портрета"></div>
+          <button class="primary-button" value="close">Играть</button>
+        </form>
+      </dialog>
 
       <dialog id="rulesDialog" class="rules-dialog">
         <form method="dialog">

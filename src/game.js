@@ -10,7 +10,30 @@ const RANKS = [
   { id: '7', value: 7 }, { id: '8', value: 8 }, { id: '9', value: 9 }, { id: '10', value: 10 },
   { id: 'J', value: 11 }, { id: 'Q', value: 12 }, { id: 'K', value: 13 }, { id: 'A', value: 14 },
 ];
-const PLAYERS = ['Вы', 'Лиса', 'Барон', 'Сова'];
+
+const CHARACTERS = [
+  { id: 'raccoon', name: 'Енот Шнырь', emoji: '🦝', bg: '#375a7f' },
+  { id: 'fox', name: 'Лиса Пикс', emoji: '🦊', bg: '#b85b20' },
+  { id: 'owl', name: 'Сова 404', emoji: '🦉', bg: '#594a7d' },
+  { id: 'baron', name: 'Барон Ус', emoji: '🧐', bg: '#6f3d2e' },
+  { id: 'frog', name: 'Жаба Босс', emoji: '🐸', bg: '#3f7d36' },
+  { id: 'cat', name: 'Кот Карман', emoji: '😼', bg: '#7c4f8f' },
+  { id: 'robot', name: 'Робо-Крендель', emoji: '🤖', bg: '#4c6a78' },
+  { id: 'wizard', name: 'Маг Пыль', emoji: '🧙', bg: '#233b8f' },
+  { id: 'princess', name: 'Принцесса Вау', emoji: '👸', bg: '#b13b82' },
+  { id: 'beauty', name: 'Красотка Неон', emoji: '💃', bg: '#a8325f' },
+  { id: 'mermaid', name: 'Русалка Байт', emoji: '🧜‍♀️', bg: '#167d8f' },
+  { id: 'vampire', name: 'Вампирчик', emoji: '🧛', bg: '#4b224f' },
+  { id: 'alien', name: 'Инопуз', emoji: '👽', bg: '#2c7a54' },
+  { id: 'panda', name: 'Панда Паника', emoji: '🐼', bg: '#56606a' },
+  { id: 'unicorn', name: 'Единорог Глитч', emoji: '🦄', bg: '#8d4fb3' },
+  { id: 'chicken', name: 'Курица Крит', emoji: '🐔', bg: '#9f6b24' },
+];
+
+let selectedCharacter = 0;
+let playerCharacters = [0, 1, 2, 3];
+let playerNames = ['Вы', 'Лиса Пикс', 'Барон Ус', 'Сова 404'];
+let initialGameStarted = false;
 const CONTRACT_TYPES = [
   {
     id: 'tricks',
@@ -114,8 +137,39 @@ const el = {
   newGameButton: document.querySelector('#newGameButton'),
   hintButton: document.querySelector('#hintButton'),
   rulesButton: document.querySelector('#rulesButton'),
+  portraitButton: document.querySelector('#portraitButton'),
   rulesDialog: document.querySelector('#rulesDialog'),
+  portraitDialog: document.querySelector('#portraitDialog'),
+  portraitGrid: document.querySelector('#portraitGrid'),
 };
+
+
+function setupPlayers() {
+  const pool = CHARACTERS.map((_, index) => index).filter(index => index !== selectedCharacter);
+  const bots = shuffle(pool).slice(0, 3);
+  playerCharacters = [selectedCharacter, ...bots];
+  playerNames = ['Вы', ...bots.map(index => CHARACTERS[index].name)];
+}
+
+function avatarHtml(index, extraClass = '') {
+  const character = CHARACTERS[index] || CHARACTERS[0];
+  return `<span class="avatar ${extraClass}" style="--avatar-bg:${character.bg}" title="${character.name}" aria-hidden="true"><span>${character.emoji}</span></span>`;
+}
+
+function renderPortraitPicker() {
+  el.portraitGrid.innerHTML = CHARACTERS.map((character, index) => `
+    <button class="portrait-choice ${index === selectedCharacter ? 'selected' : ''}" type="button" data-character-id="${index}" style="--avatar-bg:${character.bg}">
+      ${avatarHtml(index, 'portrait-avatar')}
+      <span>${character.name}</span>
+    </button>`).join('');
+}
+
+function selectPortrait(index) {
+  selectedCharacter = index;
+  renderPortraitPicker();
+  setupPlayers();
+  render();
+}
 
 function initTelegram() {
   if (!tg) return;
@@ -145,6 +199,7 @@ function startGame() {
   state.round = 0;
   state.scores = [0, 0, 0, 0];
   state.leader = 0;
+  setupPlayers();
   state.running = true;
   startRound();
   tg?.HapticFeedback?.impactOccurred('medium');
@@ -157,7 +212,7 @@ function startRound() {
   state.trickNumber = 1;
   state.currentTrick = [];
   state.turn = state.leader;
-  state.message = `${PLAYERS[state.turn]} начинает контракт.`;
+  state.message = `${playerNames[state.turn]} начинает контракт.`;
   render();
   maybeBotTurn();
 }
@@ -194,7 +249,7 @@ function playCard(player, cardId) {
   state.hands[player] = state.hands[player].filter(item => item.id !== cardId);
   state.currentTrick.push({ player, card });
   state.turn = (player + 1) % 4;
-  state.message = `${PLAYERS[player]} сыграл ${formatCard(card)}.`;
+  state.message = `${playerNames[player]} сыграл ${formatCard(card)}.`;
   render();
   if (state.currentTrick.length === 4) window.setTimeout(resolveTrick, 650);
   else maybeBotTurn();
@@ -229,7 +284,7 @@ function resolveTrick() {
   state.leader = winner;
   state.turn = winner;
   state.currentTrick = [];
-  state.message = `${PLAYERS[winner]} забирает взятку ${state.trickNumber} (${delta > 0 ? '+' : ''}${delta}).`;
+  state.message = `${playerNames[winner]} забирает взятку ${state.trickNumber} (${delta > 0 ? '+' : ''}${delta}).`;
   state.trickNumber += 1;
   if (state.hands.every(hand => hand.length === 0)) {
     state.round += 1;
@@ -244,7 +299,7 @@ function resolveTrick() {
 function finishGame() {
   state.running = false;
   const best = Math.max(...state.scores);
-  const winners = PLAYERS.filter((_, index) => state.scores[index] === best).join(', ');
+  const winners = playerNames.filter((_, index) => state.scores[index] === best).join(', ');
   state.message = `Партия окончена. Победитель: ${winners}!`;
   tg?.HapticFeedback?.notificationOccurred(state.scores[0] === best ? 'success' : 'warning');
   render();
@@ -275,21 +330,21 @@ function render() {
 }
 
 function renderScores() {
-  el.scoreBoard.innerHTML = PLAYERS.map((name, index) => `
+  el.scoreBoard.innerHTML = playerNames.map((name, index) => `
     <div class="score ${index === state.turn && state.running ? 'active' : ''}">
-      <span>${name}</span><strong>${state.scores[index]}</strong><small>Взяток: ${state.taken[index] || 0}</small>
+      ${avatarHtml(playerCharacters[index], 'score-avatar')}<span>${name}</span><strong>${state.scores[index]}</strong><small>Взяток: ${state.taken[index] || 0}</small>
     </div>`).join('');
 }
 
 function renderPlayers() {
-  el.players.innerHTML = PLAYERS.map((name, index) => `
+  el.players.innerHTML = playerNames.map((name, index) => `
     <div class="player player-${index} ${index === state.turn && state.running ? 'active' : ''}">
-      <span>${name}</span><b>${state.hands[index]?.length || 0}</b>
+      ${avatarHtml(playerCharacters[index], 'mini-avatar')}<span>${index === 0 ? 'Вы' : name}</span><b>${state.hands[index]?.length || 0}</b>
     </div>`).join('');
 }
 
 function renderTrick() {
-  el.trickArea.innerHTML = state.currentTrick.map(play => cardHtml(play.card, `played-card seat-${play.player}`, PLAYERS[play.player])).join('');
+  el.trickArea.innerHTML = state.currentTrick.map(play => cardHtml(play.card, `played-card seat-${play.player}`, playerNames[play.player])).join('');
 }
 
 function renderHand() {
@@ -313,6 +368,20 @@ el.hand.addEventListener('click', event => {
 el.newGameButton.addEventListener('click', startGame);
 el.hintButton.addEventListener('click', hint);
 el.rulesButton.addEventListener('click', () => el.rulesDialog.showModal());
+el.portraitButton.addEventListener('click', () => el.portraitDialog.showModal());
+el.portraitGrid.addEventListener('click', event => {
+  const button = event.target.closest('[data-character-id]');
+  if (!button) return;
+  selectPortrait(Number(button.dataset.characterId));
+});
+el.portraitDialog.addEventListener('close', () => {
+  if (initialGameStarted) return;
+  initialGameStarted = true;
+  startGame();
+});
 
+renderPortraitPicker();
+setupPlayers();
+render();
 initTelegram();
-startGame();
+el.portraitDialog.showModal();

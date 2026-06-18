@@ -286,7 +286,7 @@ h1 {
 .network-dialog h2 { margin-top: 0; color: var(--dos-yellow); text-transform: uppercase; }
 .network-dialog p, .network-field, .invite-preview { color: var(--dos-white); line-height: 1.35; }
 .network-field { display: block; margin: 14px 0 6px; color: var(--dos-cyan); font-weight: 900; text-transform: uppercase; }
-.network-select { width: 100%; min-height: 40px; border: 2px solid var(--dos-white); background: #000052; color: var(--dos-yellow); font: inherit; font-weight: 900; }
+.invite-link { width: 100%; min-height: 40px; padding: 0 10px; border: 2px solid var(--dos-white); background: #000052; color: var(--dos-yellow); font: inherit; font-weight: 900; }
 .invite-preview { margin: 12px 0; padding: 10px; border: 2px solid var(--dos-cyan); background: #000052; }
 .dialog-actions { display: flex; flex-wrap: wrap; gap: 10px; justify-content: flex-end; }
 

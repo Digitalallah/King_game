@@ -1,6 +1,8 @@
+import { TELEGRAM_CONFIG } from './config.js';
+
 const tg = window.Telegram?.WebApp;
-const TELEGRAM_BOT_USERNAME = window.KING_TELEGRAM_BOT_USERNAME || document.querySelector('meta[name="telegram-bot-username"]')?.content || 'KingIgraBot';
-const TELEGRAM_APP_NAME = window.KING_TELEGRAM_APP_NAME || document.querySelector('meta[name="telegram-app-name"]')?.content || 'King';
+const TELEGRAM_BOT_USERNAME = TELEGRAM_CONFIG.botUsername;
+const TELEGRAM_APP_NAME = TELEGRAM_CONFIG.appName;
 
 const SUITS = [
   { id: 'clubs', symbol: '♣', name: 'трефы', color: 'black' },
@@ -372,7 +374,15 @@ function inviteSeat() {
   return [1, 2, 3].find(seat => !generatedInviteSeats.includes(seat));
 }
 
+function inviteConfigError() {
+  if (!TELEGRAM_BOT_USERNAME) return 'Не задано имя Telegram-бота в конфиге.';
+  if (!TELEGRAM_APP_NAME) return 'Не задано имя Telegram Mini App в конфиге.';
+  return '';
+}
+
 function buildInviteLink() {
+  const configError = inviteConfigError();
+  if (configError) throw new Error(configError);
   const room = networkClient?.room || ensureNetworkHost();
   const link = new URL(`https://t.me/${TELEGRAM_BOT_USERNAME}/${TELEGRAM_APP_NAME}`);
   link.searchParams.set('startapp', `room_${room}`);
@@ -380,13 +390,15 @@ function buildInviteLink() {
 }
 
 function updateInvitePreview(link = '') {
+  const configError = inviteConfigError();
   const nextSeat = inviteSeat();
   const connected = generatedInviteSeats.length;
-  el.invitePreview.textContent = nextSeat
+  el.invitePreview.textContent = configError || (nextSeat
     ? `Подключено игроков: ${connected}/3. Ссылка подключит следующего игрока на место ${nextSeat}.`
-    : 'Все три бота заменены приглашенными игроками. Можно начинать сетевую партию.';
-  if (el.inviteLink) el.inviteLink.value = link;
-  if (el.shareInviteButton) el.shareInviteButton.disabled = !nextSeat;
+    : 'Все три бота заменены приглашенными игроками. Можно начинать сетевую партию.');
+  if (el.inviteLink) el.inviteLink.value = configError ? '' : link;
+  if (el.shareInviteButton) el.shareInviteButton.disabled = Boolean(configError) || !nextSeat;
+  if (el.copyInviteButton) el.copyInviteButton.disabled = Boolean(configError) || !link;
 }
 
 function copyInvite() {
@@ -400,8 +412,15 @@ function copyInvite() {
 function shareInvite() {
   const seat = inviteSeat();
   if (!seat) return updateInvitePreview();
-  ensureNetworkHost();
-  const link = buildInviteLink();
+  let link;
+  try {
+    link = buildInviteLink();
+  } catch (error) {
+    state.message = error.message;
+    updateInvitePreview();
+    render();
+    return;
+  }
   updateInvitePreview(link);
   const text = `Присоединяйся к сетевой партии в Кинг: ${link}`;
   if (tg?.openTelegramLink) tg.openTelegramLink(`https://t.me/share/url?url=${encodeURIComponent(link)}&text=${encodeURIComponent('Присоединяйся к сетевой партии в Кинг')}`);

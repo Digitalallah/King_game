@@ -1,4 +1,6 @@
-import { TELEGRAM_CONFIG } from './config.js';
+import { initializeApp, getApps } from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js';
+import { getDatabase, ref, set, update, push, onValue, onChildAdded, onDisconnect, serverTimestamp, runTransaction } from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-database.js';
+import { FIREBASE_CONFIG, TELEGRAM_CONFIG } from './config.js';
 
 const tg = window.Telegram?.WebApp;
 const TELEGRAM_BOT_USERNAME = TELEGRAM_CONFIG.botUsername;
@@ -39,6 +41,7 @@ let playerCharacters = [0, 1, 2, 3];
 let playerNames = ['Вы', 'Лиса Пикс', 'Барон Ус', 'Сова 404'];
 let playerTypes = ['local', 'bot', 'bot', 'bot'];
 let generatedInviteSeats = [];
+let lobbyPlayers = [];
 let initialGameStarted = false;
 let localSeat = 0;
 let networkClient = null;
@@ -48,7 +51,7 @@ const telegramStartParam = tg?.initDataUnsafe?.start_param || urlParams.get('tgW
 const telegramRoomInvite = telegramStartParam.startsWith('room_') ? telegramStartParam.slice('room_'.length) : '';
 const browserInviteSeat = Number(urlParams.get('king_seat') || 0);
 const pendingInvite = {
-  room: telegramRoomInvite || urlParams.get('king_room'),
+  room: telegramRoomInvite || urlParams.get('room_id') || urlParams.get('king_room'),
   seat: browserInviteSeat >= 1 && browserInviteSeat <= 3 ? browserInviteSeat : 0,
 };
 const isInviteGuest = Boolean(pendingInvite.room);
@@ -164,6 +167,7 @@ const el = {
   portraitGrid: document.querySelector('#portraitGrid'),
   invitePreview: document.querySelector('#invitePreview'),
   inviteLink: document.querySelector('#inviteLink'),
+  lobbyPlayers: document.querySelector('#lobbyPlayers'),
   copyInviteButton: document.querySelector('#copyInviteButton'),
   shareInviteButton: document.querySelector('#shareInviteButton'),
   startNetworkButton: document.querySelector('#startNetworkButton'),
@@ -184,7 +188,7 @@ function setupPlayers(mode = 'solo') {
     return;
   }
 
-  playerNames = ['Вы', ...[1, 2, 3].map(index => generatedInviteSeats.includes(index) ? `Игрок ${index} (сеть)` : CHARACTERS[bots[index - 1]].name)];
+  playerNames = ['Вы', ...[1, 2, 3].map(index => generatedInviteSeats.includes(index) ? (lobbyPlayers.find(player => player.seat === index)?.name || `Игрок ${index} (сеть)`) : CHARACTERS[bots[index - 1]].name)];
   playerTypes = ['local', ...[1, 2, 3].map(index => generatedInviteSeats.includes(index) ? 'remote' : 'bot')];
 }
 
@@ -386,20 +390,28 @@ function buildInviteLink() {
   const room = networkClient?.room || ensureNetworkHost();
   const link = new URL(`https://t.me/${TELEGRAM_BOT_USERNAME}/${TELEGRAM_APP_NAME}`);
   link.searchParams.set('startapp', `room_${room}`);
+  link.searchParams.set('room_id', room);
   return link.toString();
 }
 
 function updateInvitePreview(link = '') {
-  const configError = inviteConfigError();
+  const configError = inviteConfigError() || firebaseConfigError();
   const nextSeat = inviteSeat();
-  const connected = generatedInviteSeats.length;
+  const connected = lobbyPlayers.length || (networkClient ? 1 : 0);
   el.invitePreview.textContent = configError || (nextSeat
-    ? `Подключено игроков: ${connected}/3. Ссылка подключит следующего игрока на место ${nextSeat}.`
-    : 'Все три бота заменены приглашенными игроками. Можно начинать сетевую партию.');
+    ? `В комнате игроков: ${connected}/4. Минимум для старта: 2. Ссылка автоматически добавит следующего игрока.`
+    : 'Комната заполнена: четыре игрока подключены. Можно начинать сетевую партию.');
+  if (el.lobbyPlayers) {
+    el.lobbyPlayers.innerHTML = lobbyPlayers.length
+      ? lobbyPlayers.map(player => `<div class="lobby-player">${avatarHtml(player.character, 'mini-avatar')}<span>${player.seat === 0 ? 'Хост' : `Место ${player.seat + 1}`}: ${player.seat === localSeat ? 'Вы' : player.name}</span></div>`).join('')
+      : '<div class="lobby-player muted">Комната еще не создана.</div>';
+  }
   if (el.inviteLink) el.inviteLink.value = configError ? '' : link;
   if (el.shareInviteButton) el.shareInviteButton.disabled = Boolean(configError) || !nextSeat;
   if (el.copyInviteButton) el.copyInviteButton.disabled = Boolean(configError) || !link;
+  if (el.startNetworkButton) el.startNetworkButton.disabled = Boolean(configError) || connected < 2;
 }
+
 
 function copyInvite() {
   const link = el.inviteLink?.value;
@@ -430,31 +442,70 @@ function shareInvite() {
   broadcastSnapshot();
 }
 
-function startNetworkGame() {
-  ensureNetworkHost();
+function startNetworkGame(event) {
+  const connectedCount = lobbyPlayers.length || 1;
+  if (connectedCount < 2) {
+    event?.preventDefault();
+    state.message = 'Нужно минимум два игрока в комнате, чтобы начать сетевую игру.';
+    render();
+    return;
+  }
+  try {
+    ensureNetworkHost();
+  } catch (error) {
+    event?.preventDefault();
+    return;
+  }
   startGame({ mode: 'network' });
+  networkClient?.setStatus('playing');
+}
+
+function firebaseConfigError() {
+  if (!FIREBASE_CONFIG?.apiKey || !FIREBASE_CONFIG?.databaseURL || !FIREBASE_CONFIG?.projectId) {
+    return 'Заполните FIREBASE_CONFIG в src/config.js для Firebase Realtime Database.';
+  }
+  return '';
+}
+
+function playerDisplayName() {
+  const tgUser = tg?.initDataUnsafe?.user;
+  return tgUser?.first_name || CHARACTERS[selectedCharacter]?.name || 'Игрок';
+}
+
+function updateLobbyPlayers(players) {
+  lobbyPlayers = players;
+  generatedInviteSeats = players.filter(player => player.seat > 0).map(player => player.seat);
+  if (networkRole === 'host') {
+    players.forEach(player => {
+      if (player.seat >= 0 && player.seat <= 3) {
+        playerNames[player.seat] = player.seat === localSeat ? 'Вы' : player.name;
+        playerTypes[player.seat] = player.seat === localSeat ? 'local' : 'remote';
+        playerCharacters[player.seat] = player.character ?? playerCharacters[player.seat];
+      }
+    });
+  }
+  updateInvitePreview(el.inviteLink?.value || '');
+  render();
 }
 
 function ensureNetworkHost() {
   if (networkClient) return networkClient.room;
+  const configError = firebaseConfigError();
+  if (configError) {
+    state.message = configError;
+    render();
+    throw new Error(configError);
+  }
   networkRole = 'host';
-  networkClient = new RelayClient(makeRoomId());
-  networkClient.onMessage = message => {
-    if (message.type === 'join') {
-      const requestedSeat = message.seat >= 1 && message.seat <= 3 ? message.seat : 0;
-      const seat = requestedSeat || inviteSeat();
-      if (!seat) return;
-      if (!generatedInviteSeats.includes(seat)) generatedInviteSeats.push(seat);
-      playerTypes[seat] = 'remote';
-      playerNames[seat] = `Игрок ${seat} (сеть)`;
-      state.message = `${playerNames[seat]} подключился.`;
-      render();
-      networkClient?.send({ type: 'welcome', targetClientId: message.guestId, seat, snapshot: snapshot() });
-      broadcastSnapshot();
-    }
+  const roomId = makeRoomId();
+  networkClient = new FirebaseRoomClient(roomId);
+  networkClient.onLobby = updateLobbyPlayers;
+  networkClient.onCommand = message => {
     if (message.type === 'play' && playerTypes[message.seat] === 'remote') playCard(message.seat, message.cardId);
   };
   networkClient.connect();
+  networkClient.join({ seat: 0, name: playerDisplayName(), character: selectedCharacter, host: true });
+  networkClient.setStatus('lobby');
   return networkClient.room;
 }
 
@@ -463,64 +514,119 @@ function snapshot() {
 }
 
 function applySnapshot(data) {
+  if (!data) return;
   playerCharacters = data.playerCharacters;
   playerNames = data.playerNames.map((name, index) => index === localSeat ? 'Вы' : name);
   playerTypes = data.playerTypes.map((type, index) => index === localSeat ? 'local' : type);
   Object.assign(state, data.state);
+  if (state.running && el.networkDialog?.open) el.networkDialog.close();
   render();
 }
 
 function broadcastSnapshot() {
-  if (networkRole === 'host') networkClient?.send({ type: 'snapshot', snapshot: snapshot() });
+  if (networkRole === 'host') networkClient?.publishSnapshot(snapshot());
 }
 
 function connectGuest() {
+  const configError = firebaseConfigError();
+  if (configError) {
+    state.message = configError;
+    render();
+    return;
+  }
   el.newGameButton.disabled = true;
   el.networkButton.disabled = true;
   el.networkGameButton.disabled = true;
-  networkClient = new RelayClient(pendingInvite.room);
-  networkClient.onMessage = message => {
-    if (message.type === 'welcome' && (!message.targetClientId || message.targetClientId === networkClient.clientId)) {
-      setupGuestPlayers(message.seat, message.snapshot);
-    }
-    if (message.type === 'snapshot' && localSeat) applySnapshot(message.snapshot);
+  networkRole = 'guest';
+  networkClient = new FirebaseRoomClient(pendingInvite.room);
+  networkClient.onLobby = players => {
+    updateLobbyPlayers(players);
+    const me = players.find(player => player.clientId === networkClient.clientId);
+    if (me && localSeat !== me.seat) setupGuestPlayers(me.seat);
+  };
+  networkClient.onSnapshot = data => {
+    if (localSeat || localSeat === 0) applySnapshot(data);
   };
   networkClient.connect();
-  if (pendingInvite.seat) setupGuestPlayers(pendingInvite.seat);
-  networkClient.send({ type: 'join', seat: pendingInvite.seat, guestId: networkClient.clientId });
-  state.message = 'Подключаемся к сетевой партии…';
+  networkClient.join({ seat: pendingInvite.seat || null, name: playerDisplayName(), character: selectedCharacter, host: false });
+  state.message = 'Подключаемся к сетевой комнате…';
   render();
+  updateInvitePreview();
+  if (!el.networkDialog.open) el.networkDialog.showModal();
 }
 
-class RelayClient {
+class FirebaseRoomClient {
   constructor(room) {
     this.room = room;
     this.clientId = makeRoomId();
-    this.onMessage = () => {};
+    this.onLobby = () => {};
+    this.onCommand = () => {};
+    this.onSnapshot = () => {};
+    const app = getApps()[0] || initializeApp(FIREBASE_CONFIG);
+    this.db = getDatabase(app);
+    this.roomRef = ref(this.db, `rooms/${this.room}`);
+    this.commandsRef = ref(this.db, `rooms/${this.room}/commands`);
+    this.playersRef = ref(this.db, `rooms/${this.room}/players`);
+    this.snapshotRef = ref(this.db, `rooms/${this.room}/game/snapshot`);
   }
 
   connect() {
-    this.events?.close();
-    this.events = new EventSource(`/api/rooms/${encodeURIComponent(this.room)}/events?client=${encodeURIComponent(this.clientId)}`);
-    this.events.addEventListener('message', event => {
-      const envelope = JSON.parse(event.data);
-      if (envelope.clientId !== this.clientId) this.onMessage(envelope.payload);
+    onValue(this.playersRef, snapshot => {
+      const players = Object.entries(snapshot.val() || {})
+        .map(([clientId, player]) => ({ clientId, ...player }))
+        .filter(player => typeof player.seat === 'number')
+        .sort((a, b) => a.seat - b.seat);
+      this.onLobby(players);
     });
-    this.events.addEventListener('error', () => {
-      state.message = 'Нет соединения с сетевым сервером. Запустите игру через node server.mjs.';
+    onValue(this.snapshotRef, snapshot => {
+      const data = snapshot.val();
+      if (data) this.onSnapshot(data);
+    });
+    if (networkRole === 'host') {
+      onChildAdded(this.commandsRef, snapshot => {
+        const command = snapshot.val();
+        if (command?.clientId !== this.clientId) this.onCommand(command?.payload || {});
+      });
+    }
+  }
+
+  async join({ seat, name, character, host }) {
+    const playerRef = ref(this.db, `rooms/${this.room}/players/${this.clientId}`);
+    let assignedSeat = seat;
+    if (!host && (assignedSeat === null || assignedSeat === undefined)) {
+      const seatsRef = ref(this.db, `rooms/${this.room}/seats`);
+      const result = await runTransaction(seatsRef, seats => {
+        const next = seats || { 0: 'host' };
+        const freeSeat = [1, 2, 3].find(index => !next[index]);
+        if (!freeSeat) return;
+        next[freeSeat] = this.clientId;
+        return next;
+      });
+      const seats = result.snapshot.val() || {};
+      assignedSeat = Number(Object.keys(seats).find(key => seats[key] === this.clientId));
+    }
+    if (!Number.isInteger(Number(assignedSeat))) {
+      state.message = 'В комнате уже четыре игрока.';
       render();
-    });
+      return null;
+    }
+    if (host) await update(this.roomRef, { hostId: this.clientId, createdAt: serverTimestamp() });
+    await set(playerRef, { seat: Number(assignedSeat), name, character, host: Boolean(host), joinedAt: serverTimestamp() });
+    onDisconnect(playerRef).remove();
+    onDisconnect(ref(this.db, `rooms/${this.room}/seats/${Number(assignedSeat)}`)).remove();
+    return Number(assignedSeat);
   }
 
   send(payload) {
-    return fetch(`/api/rooms/${encodeURIComponent(this.room)}/message`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ clientId: this.clientId, payload }),
-    }).catch(() => {
-      state.message = 'Не удалось отправить сетевое сообщение.';
-      render();
-    });
+    return push(this.commandsRef, { clientId: this.clientId, payload, createdAt: serverTimestamp() });
+  }
+
+  publishSnapshot(data) {
+    return set(this.snapshotRef, data);
+  }
+
+  setStatus(status) {
+    return update(this.roomRef, { status, updatedAt: serverTimestamp() });
   }
 }
 

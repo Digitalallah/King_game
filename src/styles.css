@@ -294,3 +294,23 @@ h1 {
   .actions { grid-template-columns: 1fr; }
   .dialog-actions { display: grid; grid-template-columns: 1fr; }
 }
+
+.lobby-players {
+  display: grid;
+  gap: 8px;
+  margin: 10px 0;
+}
+
+.lobby-player {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  border: 2px solid #5555ff;
+  background: #000052;
+  color: var(--dos-white);
+}
+
+.lobby-player.muted {
+  color: var(--dos-cyan);
+}

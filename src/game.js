@@ -33,6 +33,8 @@ const CHARACTERS = [
 let selectedCharacter = 0;
 let playerCharacters = [0, 1, 2, 3];
 let playerNames = ['Вы', 'Лиса Пикс', 'Барон Ус', 'Сова 404'];
+let playerTypes = ['local', 'bot', 'bot', 'bot'];
+let inviteCount = 1;
 let initialGameStarted = false;
 const CONTRACT_TYPES = [
   {
@@ -138,17 +140,33 @@ const el = {
   hintButton: document.querySelector('#hintButton'),
   rulesButton: document.querySelector('#rulesButton'),
   portraitButton: document.querySelector('#portraitButton'),
+  networkButton: document.querySelector('#networkButton'),
+  networkGameButton: document.querySelector('#networkGameButton'),
   rulesDialog: document.querySelector('#rulesDialog'),
   portraitDialog: document.querySelector('#portraitDialog'),
+  networkDialog: document.querySelector('#networkDialog'),
   portraitGrid: document.querySelector('#portraitGrid'),
+  inviteCount: document.querySelector('#inviteCount'),
+  invitePreview: document.querySelector('#invitePreview'),
+  shareInviteButton: document.querySelector('#shareInviteButton'),
+  startNetworkButton: document.querySelector('#startNetworkButton'),
 };
 
 
-function setupPlayers() {
+function setupPlayers(mode = 'solo') {
   const pool = CHARACTERS.map((_, index) => index).filter(index => index !== selectedCharacter);
   const bots = shuffle(pool).slice(0, 3);
+  if (mode !== 'network') {
+    playerCharacters = [selectedCharacter, ...bots];
+    playerNames = ['Вы', ...bots.map(index => CHARACTERS[index].name)];
+    playerTypes = ['local', 'bot', 'bot', 'bot'];
+    return;
+  }
+
+  const invited = Math.max(1, Math.min(3, inviteCount));
   playerCharacters = [selectedCharacter, ...bots];
-  playerNames = ['Вы', ...bots.map(index => CHARACTERS[index].name)];
+  playerNames = ['Вы', ...[1, 2, 3].map(index => index <= invited ? `Игрок ${index} (сеть)` : CHARACTERS[bots[index - 1]].name)];
+  playerTypes = ['local', ...[1, 2, 3].map(index => index <= invited ? 'remote' : 'bot')];
 }
 
 function avatarHtml(index, extraClass = '') {
@@ -195,11 +213,11 @@ function shuffle(cards) {
   return deck;
 }
 
-function startGame() {
+function startGame(options = {}) {
   state.round = 0;
   state.scores = [0, 0, 0, 0];
   state.leader = 0;
-  setupPlayers();
+  setupPlayers(options.mode === 'network' ? 'network' : 'solo');
   state.running = true;
   startRound();
   tg?.HapticFeedback?.impactOccurred('medium');
@@ -268,7 +286,8 @@ function chooseBotCard(player) {
 
 function maybeBotTurn() {
   if (!state.running || state.turn === 0) return;
-  window.setTimeout(() => playCard(state.turn, chooseBotCard(state.turn).id), 550);
+  const delay = playerTypes[state.turn] === 'remote' ? 900 : 550;
+  window.setTimeout(() => playCard(state.turn, chooseBotCard(state.turn).id), delay);
 }
 
 function resolveTrick() {
@@ -309,6 +328,39 @@ function formatCard(card) {
   return `${card.rank.id}${card.suit.symbol}`;
 }
 
+function buildInviteLink() {
+  const baseUrl = new URL(window.location.href);
+  baseUrl.searchParams.set('king_invite', String(inviteCount));
+  return baseUrl.toString();
+}
+
+function updateInvitePreview() {
+  inviteCount = Number(el.inviteCount.value);
+  const botCount = 3 - inviteCount;
+  el.invitePreview.textContent = `Приглашение рассчитано на ${inviteCount} ${inviteCount === 1 ? 'игрока' : 'игроков'}; ${botCount ? `ботов будет: ${botCount}` : 'ботов не будет'}.`;
+}
+
+function shareInvite() {
+  updateInvitePreview();
+  const text = `Присоединяйся к партии в Кинг: ${buildInviteLink()}`;
+  if (tg?.openTelegramLink) {
+    tg.openTelegramLink(`https://t.me/share/url?url=${encodeURIComponent(buildInviteLink())}&text=${encodeURIComponent('Присоединяйся к партии в Кинг')}`);
+    return;
+  }
+  if (navigator.share) {
+    navigator.share({ title: 'Кинг', text, url: buildInviteLink() }).catch(() => {});
+    return;
+  }
+  navigator.clipboard?.writeText(text);
+  state.message = 'Ссылка приглашения скопирована. Отправьте ее друзьям.';
+  render();
+}
+
+function startNetworkGame() {
+  updateInvitePreview();
+  startGame({ mode: 'network' });
+}
+
 function hint() {
   if (!state.running || state.turn !== 0) return;
   const card = chooseBotCard(0);
@@ -332,7 +384,7 @@ function render() {
 function renderScores() {
   el.scoreBoard.innerHTML = playerNames.map((name, index) => `
     <div class="score ${index === state.turn && state.running ? 'active' : ''}">
-      ${avatarHtml(playerCharacters[index], 'score-avatar')}<span>${name}</span><strong>${state.scores[index]}</strong><small>Взяток: ${state.taken[index] || 0}</small>
+      ${avatarHtml(playerCharacters[index], 'score-avatar')}<span>${name}</span><strong>${state.scores[index]}</strong><small>${playerTypes[index] === 'remote' ? 'Сеть' : playerTypes[index] === 'bot' ? 'Бот' : 'Вы'} · Взяток: ${state.taken[index] || 0}</small>
     </div>`).join('');
 }
 
@@ -367,6 +419,11 @@ el.hand.addEventListener('click', event => {
 });
 el.newGameButton.addEventListener('click', startGame);
 el.hintButton.addEventListener('click', hint);
+el.networkButton.addEventListener('click', () => { updateInvitePreview(); el.networkDialog.showModal(); });
+el.networkGameButton.addEventListener('click', () => { updateInvitePreview(); el.networkDialog.showModal(); });
+el.inviteCount.addEventListener('change', updateInvitePreview);
+el.shareInviteButton.addEventListener('click', shareInvite);
+el.startNetworkButton.addEventListener('click', startNetworkGame);
 el.rulesButton.addEventListener('click', () => el.rulesDialog.showModal());
 el.portraitButton.addEventListener('click', () => el.portraitDialog.showModal());
 el.portraitGrid.addEventListener('click', event => {
@@ -381,6 +438,7 @@ el.portraitDialog.addEventListener('close', () => {
 });
 
 renderPortraitPicker();
+updateInvitePreview();
 setupPlayers();
 render();
 initTelegram();

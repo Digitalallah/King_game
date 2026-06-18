@@ -69,8 +69,9 @@
       <dialog id="networkDialog" class="network-dialog">
         <form method="dialog">
           <h2>Сетевая игра</h2>
-          <p>Нажмите «Пригласить», чтобы создать ссылку для игрока. Первая ссылка заменяет первого бота, следующая — второго, третья — последнего.</p>
+          <p>Нажмите «Пригласить», чтобы создать Firebase-комнату и отправить ссылку. Игроки, открывшие ссылку с room_id, автоматически входят в лобби.</p>
           <div id="invitePreview" class="invite-preview"></div>
+          <div id="lobbyPlayers" class="lobby-players" aria-live="polite"></div>
           <label class="network-field" for="inviteLink">Ссылка приглашения</label>
           <input id="inviteLink" class="invite-link" type="text" readonly placeholder="Нажмите «Пригласить»" />
           <div class="dialog-actions">

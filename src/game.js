@@ -1,6 +1,6 @@
 const tg = window.Telegram?.WebApp;
-const TELEGRAM_BOT_USERNAME = window.KING_TELEGRAM_BOT_USERNAME || document.querySelector('meta[name="telegram-bot-username"]')?.content || 'BOT_USERNAME';
-const TELEGRAM_APP_NAME = window.KING_TELEGRAM_APP_NAME || document.querySelector('meta[name="telegram-app-name"]')?.content || 'APP_NAME';
+const TELEGRAM_BOT_USERNAME = window.KING_TELEGRAM_BOT_USERNAME || document.querySelector('meta[name="telegram-bot-username"]')?.content || 'KingIgraBot';
+const TELEGRAM_APP_NAME = window.KING_TELEGRAM_APP_NAME || document.querySelector('meta[name="telegram-app-name"]')?.content || 'King';
 
 const SUITS = [
   { id: 'clubs', symbol: '♣', name: 'трефы', color: 'black' },

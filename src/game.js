@@ -1,4 +1,6 @@
 const tg = window.Telegram?.WebApp;
+const TELEGRAM_BOT_USERNAME = window.KING_TELEGRAM_BOT_USERNAME || document.querySelector('meta[name="telegram-bot-username"]')?.content || 'BOT_USERNAME';
+const TELEGRAM_APP_NAME = window.KING_TELEGRAM_APP_NAME || document.querySelector('meta[name="telegram-app-name"]')?.content || 'APP_NAME';
 
 const SUITS = [
   { id: 'clubs', symbol: '♣', name: 'трефы', color: 'black' },
@@ -40,8 +42,14 @@ let localSeat = 0;
 let networkClient = null;
 let networkRole = 'host';
 const urlParams = new URLSearchParams(window.location.search);
-const pendingInvite = { room: urlParams.get('king_room'), seat: Number(urlParams.get('king_seat') || 0) };
-const isInviteGuest = Boolean(pendingInvite.room && pendingInvite.seat >= 1 && pendingInvite.seat <= 3);
+const telegramStartParam = tg?.initDataUnsafe?.start_param || urlParams.get('tgWebAppStartParam') || '';
+const telegramRoomInvite = telegramStartParam.startsWith('room_') ? telegramStartParam.slice('room_'.length) : '';
+const browserInviteSeat = Number(urlParams.get('king_seat') || 0);
+const pendingInvite = {
+  room: telegramRoomInvite || urlParams.get('king_room'),
+  seat: browserInviteSeat >= 1 && browserInviteSeat <= 3 ? browserInviteSeat : 0,
+};
+const isInviteGuest = Boolean(pendingInvite.room);
 const CONTRACT_TYPES = [
   {
     id: 'tricks',
@@ -364,19 +372,18 @@ function inviteSeat() {
   return [1, 2, 3].find(seat => !generatedInviteSeats.includes(seat));
 }
 
-function buildInviteLink(seat) {
-  const baseUrl = new URL(window.location.href);
-  baseUrl.searchParams.set('king_room', networkClient?.room || ensureNetworkHost());
-  baseUrl.searchParams.set('king_seat', String(seat));
-  baseUrl.searchParams.delete('king_invite');
-  return baseUrl.toString();
+function buildInviteLink() {
+  const room = networkClient?.room || ensureNetworkHost();
+  const link = new URL(`https://t.me/${TELEGRAM_BOT_USERNAME}/${TELEGRAM_APP_NAME}`);
+  link.searchParams.set('startapp', `room_${room}`);
+  return link.toString();
 }
 
 function updateInvitePreview(link = '') {
   const nextSeat = inviteSeat();
-  const replaced = generatedInviteSeats.length;
+  const connected = generatedInviteSeats.length;
   el.invitePreview.textContent = nextSeat
-    ? `Сгенерировано ссылок: ${replaced}/3. Следующая ссылка заменит бота на месте ${nextSeat}.`
+    ? `Подключено игроков: ${connected}/3. Ссылка подключит следующего игрока на место ${nextSeat}.`
     : 'Все три бота заменены приглашенными игроками. Можно начинать сетевую партию.';
   if (el.inviteLink) el.inviteLink.value = link;
   if (el.shareInviteButton) el.shareInviteButton.disabled = !nextSeat;
@@ -394,9 +401,7 @@ function shareInvite() {
   const seat = inviteSeat();
   if (!seat) return updateInvitePreview();
   ensureNetworkHost();
-  generatedInviteSeats.push(seat);
-  setupPlayers('network');
-  const link = buildInviteLink(seat);
+  const link = buildInviteLink();
   updateInvitePreview(link);
   const text = `Присоединяйся к сетевой партии в Кинг: ${link}`;
   if (tg?.openTelegramLink) tg.openTelegramLink(`https://t.me/share/url?url=${encodeURIComponent(link)}&text=${encodeURIComponent('Присоединяйся к сетевой партии в Кинг')}`);
@@ -416,12 +421,16 @@ function ensureNetworkHost() {
   networkRole = 'host';
   networkClient = new RelayClient(makeRoomId());
   networkClient.onMessage = message => {
-    if (message.type === 'join' && message.seat >= 1 && message.seat <= 3) {
-      if (!generatedInviteSeats.includes(message.seat)) generatedInviteSeats.push(message.seat);
-      playerTypes[message.seat] = 'remote';
-      playerNames[message.seat] = `Игрок ${message.seat} (сеть)`;
-      state.message = `${playerNames[message.seat]} подключился.`;
+    if (message.type === 'join') {
+      const requestedSeat = message.seat >= 1 && message.seat <= 3 ? message.seat : 0;
+      const seat = requestedSeat || inviteSeat();
+      if (!seat) return;
+      if (!generatedInviteSeats.includes(seat)) generatedInviteSeats.push(seat);
+      playerTypes[seat] = 'remote';
+      playerNames[seat] = `Игрок ${seat} (сеть)`;
+      state.message = `${playerNames[seat]} подключился.`;
       render();
+      networkClient?.send({ type: 'welcome', targetClientId: message.guestId, seat, snapshot: snapshot() });
       broadcastSnapshot();
     }
     if (message.type === 'play' && playerTypes[message.seat] === 'remote') playCard(message.seat, message.cardId);
@@ -447,16 +456,19 @@ function broadcastSnapshot() {
 }
 
 function connectGuest() {
-  setupGuestPlayers(pendingInvite.seat);
   el.newGameButton.disabled = true;
   el.networkButton.disabled = true;
   el.networkGameButton.disabled = true;
   networkClient = new RelayClient(pendingInvite.room);
   networkClient.onMessage = message => {
-    if (message.type === 'snapshot') applySnapshot(message.snapshot);
+    if (message.type === 'welcome' && (!message.targetClientId || message.targetClientId === networkClient.clientId)) {
+      setupGuestPlayers(message.seat, message.snapshot);
+    }
+    if (message.type === 'snapshot' && localSeat) applySnapshot(message.snapshot);
   };
   networkClient.connect();
-  networkClient.send({ type: 'join', seat: pendingInvite.seat });
+  if (pendingInvite.seat) setupGuestPlayers(pendingInvite.seat);
+  networkClient.send({ type: 'join', seat: pendingInvite.seat, guestId: networkClient.clientId });
   state.message = 'Подключаемся к сетевой партии…';
   render();
 }
@@ -574,11 +586,11 @@ el.portraitDialog.addEventListener('close', () => {
 
 renderPortraitPicker();
 updateInvitePreview();
+initTelegram();
 if (isInviteGuest) {
   connectGuest();
 } else {
   setupPlayers();
   render();
-  initTelegram();
   el.portraitDialog.showModal();
 }

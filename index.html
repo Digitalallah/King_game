@@ -67,16 +67,13 @@
       <dialog id="networkDialog" class="network-dialog">
         <form method="dialog">
           <h2>Сетевая игра</h2>
-          <p>Создайте приглашение для 1–3 друзей. Если приглашенных меньше трех, свободные места будут заполнены ботами.</p>
-          <label class="network-field" for="inviteCount">Сколько игроков пригласить</label>
-          <select id="inviteCount" class="network-select">
-            <option value="1">1 игрок + 2 бота</option>
-            <option value="2">2 игрока + 1 бот</option>
-            <option value="3">3 игрока без ботов</option>
-          </select>
+          <p>Нажмите «Пригласить», чтобы создать ссылку для игрока. Первая ссылка заменяет первого бота, следующая — второго, третья — последнего.</p>
           <div id="invitePreview" class="invite-preview"></div>
+          <label class="network-field" for="inviteLink">Ссылка приглашения</label>
+          <input id="inviteLink" class="invite-link" type="text" readonly placeholder="Нажмите «Пригласить»" />
           <div class="dialog-actions">
-            <button id="shareInviteButton" class="secondary-button" type="button">Отправить приглашение</button>
+            <button id="shareInviteButton" class="secondary-button" type="button">Пригласить</button>
+            <button id="copyInviteButton" class="secondary-button" type="button">Копировать</button>
             <button id="startNetworkButton" class="primary-button" value="close">Начать</button>
           </div>
         </form>

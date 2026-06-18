@@ -32,4 +32,4 @@ node server.mjs
 
 1. Разместите приложение на HTTPS-хостинге, который запускает `node server.mjs` или совместимый relay для маршрутов `/api/rooms/...`.
 2. В BotFather создайте Mini App и укажите URL на `index.html`.
-3. Добавьте ссылку на Mini App в меню бота или кнопку Web App.
+3. Добавьте ссылку на Mini App в меню бота или кнопку Web App: `https://t.me/KingIgraBot/King`.

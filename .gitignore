@@ -1,0 +1,25 @@
+# Local DOS originals and extracted binary assets are intentionally excluded from PRs.
+original/
+assets/original/
+
+# DOS game binary/source-asset files.
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.fnt
+*.FNT
+*.lib
+*.LIB
+*.exe
+*.EXE
+*.dat
+*.DAT
+*.zip
+*.ZIP
+*.rar
+*.RAR
+*.ovl
+*.OVL
+*.hlp
+*.HLP

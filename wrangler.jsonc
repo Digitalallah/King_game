@@ -1,0 +1,31 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "king-game",
+  "main": "worker/index.js",
+  "compatibility_date": "2026-06-24",
+  "assets": {
+    "directory": ".",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*"]
+  },
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "GAME_ROOM",
+        "class_name": "GameRoom"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["GameRoom"]
+    }
+  ],
+  "vars": {
+    "BOT_USERNAME": "KingIgraBot",
+    "APP_SHORT_NAME": "King",
+    "DEV_AUTH": "false"
+  }
+}

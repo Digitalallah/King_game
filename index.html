@@ -50,7 +50,7 @@
         <section class="hand-panel" aria-label="Ваши карты">
           <div class="actions">
             <button id="newGameButton" class="primary-button" type="button">Новая партия</button>
-            <button id="networkGameButton" class="secondary-button" type="button">Сетевая игра</button>
+            <button id="networkGameButton" class="secondary-button" type="button">Создать игру</button>
             <button id="hintButton" class="secondary-button" type="button">Подсказка</button>
           </div>
           <div id="hand" class="hand"></div>
@@ -69,15 +69,16 @@
       <dialog id="networkDialog" class="network-dialog">
         <form method="dialog">
           <h2>Сетевая игра</h2>
-          <p>Нажмите «Пригласить», чтобы создать Firebase-комнату и отправить ссылку. Игроки, открывшие ссылку с room_id, автоматически входят в лобби.</p>
+          <p>Нажмите «Создать игру», чтобы создать комнату Cloudflare и получить Telegram-ссылку. Игроки, открывшие ссылку startapp=room_ROOMID, автоматически входят в лобби.</p>
           <div id="invitePreview" class="invite-preview"></div>
           <div id="lobbyPlayers" class="lobby-players" aria-live="polite"></div>
           <label class="network-field" for="inviteLink">Ссылка приглашения</label>
           <input id="inviteLink" class="invite-link" type="text" readonly placeholder="Нажмите «Пригласить»" />
           <div class="dialog-actions">
-            <button id="shareInviteButton" class="secondary-button" type="button">Пригласить</button>
+            <button id="shareInviteButton" class="secondary-button" type="button">Создать игру</button>
             <button id="copyInviteButton" class="secondary-button" type="button">Копировать</button>
-            <button id="startNetworkButton" class="primary-button" value="close">Начать</button>
+            <button id="readyNetworkButton" class="secondary-button" type="button">Готов</button>
+            <button id="startNetworkButton" class="primary-button" value="close">Начать игру</button>
           </div>
         </form>
       </dialog>

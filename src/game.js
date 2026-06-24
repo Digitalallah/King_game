@@ -46,6 +46,8 @@ let localSeat = 0;
 let networkClient = null;
 let networkRole = 'host';
 let networkReady = false;
+let currentInviteLink = '';
+let networkCreating = false;
 const urlParams = new URLSearchParams(window.location.search);
 const telegramStartParam = tg?.initDataUnsafe?.start_param || urlParams.get('tgWebAppStartParam') || '';
 const telegramRoomInvite = telegramStartParam.startsWith('room_') ? telegramStartParam.slice('room_'.length) : '';
@@ -388,14 +390,14 @@ function inviteConfigError() {
 function buildInviteLink() {
   const configError = networkConfigError();
   if (configError) throw new Error(configError);
-  if (!networkClient?.room) throw new Error('Комната ещё не создана.');
-  const link = new URL(`https://t.me/${TELEGRAM_BOT_USERNAME}/${TELEGRAM_APP_NAME}`);
-  link.searchParams.set('startapp', `room_${networkClient.room}`);
-  return link.toString();
+  const roomId = networkClient?.room;
+  if (!roomId) throw new Error('Комната ещё не создана.');
+  return `https://t.me/${TELEGRAM_BOT_USERNAME}/${TELEGRAM_APP_NAME}?startapp=room_${roomId}`;
 }
 
-function updateInvitePreview(link = '') {
+function updateInvitePreview(link = currentInviteLink) {
   const configError = networkConfigError();
+  currentInviteLink = configError ? '' : link;
   const nextSeat = inviteSeat();
   const connected = lobbyPlayers.length || (networkClient ? 1 : 0);
   el.invitePreview.textContent = configError || (nextSeat
@@ -414,9 +416,10 @@ function updateInvitePreview(link = '') {
       return `<div class="lobby-player ${occupied ? '' : 'muted'}">${avatar}<span><b>${title}</b>: ${occupied ? escapeHtml(player.seat === localSeat ? 'Вы' : player.name) : 'пусто'}<small>${status} · ${ready}</small></span></div>`;
     }).join('');
   }
-  if (el.inviteLink) el.inviteLink.value = configError ? '' : link;
-  if (el.shareInviteButton) el.shareInviteButton.disabled = Boolean(configError) || !nextSeat;
-  if (el.copyInviteButton) el.copyInviteButton.disabled = Boolean(configError) || !link;
+  if (el.inviteLink) el.inviteLink.textContent = currentInviteLink || 'Ссылка появится после создания комнаты.';
+  if (el.shareInviteButton) el.shareInviteButton.disabled = Boolean(configError) || !currentInviteLink || networkCreating || !nextSeat;
+  if (el.copyInviteButton) el.copyInviteButton.disabled = Boolean(configError) || !currentInviteLink;
+  if (el.networkGameButton) el.networkGameButton.disabled = Boolean(configError) || networkCreating;
   if (el.readyNetworkButton) {
     el.readyNetworkButton.disabled = Boolean(configError) || !networkClient;
     el.readyNetworkButton.textContent = networkReady ? 'Не готов' : 'Готов';
@@ -433,38 +436,51 @@ function escapeHtml(value) {
 }
 
 function copyInvite() {
-  const link = el.inviteLink?.value;
+  const link = currentInviteLink;
   if (!link) return;
   navigator.clipboard?.writeText(link);
-  state.message = 'Ссылка скопирована. Отправьте ее игроку.';
+  state.message = 'Ссылка скопирована. Отправьте её игроку.';
   render();
 }
 
-async function shareInvite() {
-  const seat = inviteSeat();
-  if (!seat) return updateInvitePreview();
-  let link;
-  try {
-    await ensureNetworkHost();
-    link = buildInviteLink();
-  } catch (error) {
-    state.message = error.message;
+function shareInvite() {
+  if (!currentInviteLink || !networkClient?.room) {
     updateInvitePreview();
-    render();
     return;
   }
-  updateInvitePreview(link);
-  const text = `Присоединяйся к сетевой партии в Кинг: ${link}`;
-  if (tg?.openTelegramLink) tg.openTelegramLink(`https://t.me/share/url?url=${encodeURIComponent(link)}&text=${encodeURIComponent('Присоединяйся к сетевой партии в Кинг')}`);
-  else if (navigator.share) navigator.share({ title: 'Кинг', text, url: link }).catch(() => {});
-  else navigator.clipboard?.writeText(text);
-  render();
+  const inviteUrl = buildInviteLink();
+  const shareUrl =
+    `https://t.me/share/url?url=${encodeURIComponent(inviteUrl)}` +
+    `&text=${encodeURIComponent('Давай поиграем в Кинг:')}`;
+
+  if (window.Telegram?.WebApp?.openTelegramLink) {
+    window.Telegram.WebApp.openTelegramLink(shareUrl);
+  } else {
+    window.open(shareUrl, '_blank', 'noopener,noreferrer');
+  }
+}
+
+async function createNetworkRoomAndOpenLobby() {
+  if (!el.networkDialog.open) el.networkDialog.showModal();
+  networkCreating = true;
+  updateInvitePreview();
+  try {
+    const roomId = await ensureNetworkHost();
+    currentInviteLink = buildInviteLink();
+    state.message = `Комната ${roomId} создана. Можно пригласить игрока.`;
+  } catch (error) {
+    state.message = error.message;
+  } finally {
+    networkCreating = false;
+    updateInvitePreview();
+    render();
+  }
 }
 
 function toggleNetworkReady() {
   networkReady = !networkReady;
   networkClient?.setReady(networkReady);
-  updateInvitePreview(el.inviteLink?.value || '');
+  updateInvitePreview(currentInviteLink);
 }
 
 function startNetworkGame(event) {
@@ -496,6 +512,9 @@ function playerDisplayName() {
 
 function updateLobbyPlayers(players) {
   lobbyPlayers = players;
+  if (networkClient?.room) {
+    try { currentInviteLink = buildInviteLink(); } catch {}
+  }
   generatedInviteSeats = players.filter(player => player.seat > 0).map(player => player.seat);
   if (networkRole === 'host') {
     players.forEach(player => {
@@ -506,7 +525,7 @@ function updateLobbyPlayers(players) {
       }
     });
   }
-  updateInvitePreview(el.inviteLink?.value || '');
+  updateInvitePreview(currentInviteLink);
   render();
 }
 
@@ -522,6 +541,7 @@ async function ensureNetworkHost() {
   const response = await fetch('/api/rooms', { method: 'POST', headers: telegramAuthHeaders() });
   if (!response.ok) throw new Error('Не удалось создать комнату Cloudflare.');
   const { roomId } = await response.json();
+  if (!roomId) throw new Error('Сервер не вернул roomId.');
   networkClient = new WorkerRoomClient(roomId);
   networkClient.onLobby = updateLobbyPlayers;
   networkClient.onStarted = () => { state.message = 'Хост начал игру. Перенос карточной логики будет добавлен позже.'; render(); };
@@ -705,7 +725,7 @@ el.hand.addEventListener('click', event => {
 el.newGameButton.addEventListener('click', startGame);
 el.hintButton.addEventListener('click', hint);
 el.networkButton.addEventListener('click', () => { updateInvitePreview(); el.networkDialog.showModal(); });
-el.networkGameButton.addEventListener('click', () => { updateInvitePreview(); el.networkDialog.showModal(); });
+el.networkGameButton.addEventListener('click', createNetworkRoomAndOpenLobby);
 el.copyInviteButton.addEventListener('click', copyInvite);
 el.shareInviteButton.addEventListener('click', shareInvite);
 el.readyNetworkButton.addEventListener('click', toggleNetworkReady);

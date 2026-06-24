@@ -69,14 +69,13 @@
       <dialog id="networkDialog" class="network-dialog">
         <form method="dialog">
           <h2>Сетевая игра</h2>
-          <p>Нажмите «Создать игру», чтобы создать комнату Cloudflare и получить Telegram-ссылку. Игроки, открывшие ссылку startapp=room_ROOMID, автоматически входят в лобби.</p>
+          <p>Нажмите «Создать игру», чтобы создать комнату Cloudflare. После получения roomId хост появится в первом месте, а кнопка «Пригласить» откроет выбор контакта, группы или чата в Telegram.</p>
           <div id="invitePreview" class="invite-preview"></div>
           <div id="lobbyPlayers" class="lobby-players" aria-live="polite"></div>
-          <label class="network-field" for="inviteLink">Ссылка приглашения</label>
-          <input id="inviteLink" class="invite-link" type="text" readonly placeholder="Нажмите «Пригласить»" />
+          <div id="inviteLink" class="invite-link compact-invite-link" aria-live="polite">Ссылка появится после создания комнаты.</div>
           <div class="dialog-actions">
-            <button id="shareInviteButton" class="secondary-button" type="button">Создать игру</button>
-            <button id="copyInviteButton" class="secondary-button" type="button">Копировать</button>
+            <button id="shareInviteButton" class="primary-button invite-main-button" type="button" disabled>Пригласить</button>
+            <button id="copyInviteButton" class="secondary-button copy-link-button" type="button" disabled>Скопировать ссылку</button>
             <button id="readyNetworkButton" class="secondary-button" type="button">Готов</button>
             <button id="startNetworkButton" class="primary-button" value="close">Начать игру</button>
           </div>

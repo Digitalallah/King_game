@@ -45,9 +45,8 @@ function makeRoomId(length = 6) {
 }
 
 function telegramInviteLink(env, roomId) {
-  const bot = env.BOT_USERNAME || 'BOT_USERNAME';
-  const app = env.APP_SHORT_NAME || 'APP_SHORT_NAME';
-  return `https://t.me/${bot}/${app}?startapp=room_${roomId}`;
+  if (!env.BOT_USERNAME || !env.APP_SHORT_NAME) throw new Error('BOT_USERNAME and APP_SHORT_NAME must be configured.');
+  return `https://t.me/${env.BOT_USERNAME}/${env.APP_SHORT_NAME}?startapp=room_${roomId}`;
 }
 
 function json(data, status = 200) {

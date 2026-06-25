@@ -508,7 +508,15 @@ async function ensureNetworkHost() {
   const configError = networkConfigError();
   if (configError) throw new Error(configError);
   networkRole = 'host';
-  const response = await fetch('/api/rooms', { method: 'POST', headers: telegramAuthHeaders() });
+  const response = await fetch('/api/rooms', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      initData: window.Telegram?.WebApp?.initData || '',
+    }),
+  });
   if (!response.ok) throw new Error(`Не удалось создать комнату Cloudflare: HTTP ${response.status} ${await response.text()}`);
   const { roomId } = await response.json();
   if (!roomId) throw new Error('Сервер не вернул roomId.');

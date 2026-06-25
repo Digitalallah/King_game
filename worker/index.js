@@ -4,37 +4,42 @@ const ROOM_ID_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 
 export default {
   async fetch(request, env) {
-    const url = new URL(request.url);
+    try {
+      const url = new URL(request.url);
 
-    if (url.pathname === '/api/rooms' && request.method === 'POST') {
-      const auth = await authenticateTelegram(request, env);
-      if (!auth.ok) return json({ error: auth.error }, auth.status || 401);
-      const roomId = makeRoomId();
-      const id = env.GAME_ROOM.idFromName(roomId);
-      const room = env.GAME_ROOM.get(id);
-      const response = await room.fetch(new Request(`${url.origin}/room/${roomId}/create`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ roomId, user: auth.user }),
-      }));
-      if (!response.ok) return response;
-      return json({ roomId, inviteLink: telegramInviteLink(env, roomId) });
+      if (url.pathname === '/api/rooms' && request.method === 'POST') {
+        const auth = await authenticateTelegram(request, env);
+        if (!auth.ok) return json({ error: auth.error }, auth.status || 401);
+        const roomId = makeRoomId();
+        const id = env.GAME_ROOM.idFromName(roomId);
+        const room = env.GAME_ROOM.get(id);
+        const response = await room.fetch(new Request(`${url.origin}/room/${roomId}/create`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ roomId, user: auth.user }),
+        }));
+        if (!response.ok) return response;
+        return json({ roomId });
+      }
+
+      const wsMatch = url.pathname.match(/^\/api\/rooms\/([A-Za-z0-9_-]+)\/ws$/);
+      if (wsMatch && request.method === 'GET') {
+        const auth = await authenticateTelegram(request, env);
+        if (!auth.ok) return json({ error: auth.error }, auth.status || 401);
+        const roomId = wsMatch[1];
+        const id = env.GAME_ROOM.idFromName(roomId);
+        const room = env.GAME_ROOM.get(id);
+        const upstream = new Request(`${url.origin}/room/${roomId}/ws`, request);
+        upstream.headers.set('x-king-user', JSON.stringify(auth.user));
+        return room.fetch(upstream);
+      }
+
+      if (env.ASSETS) return env.ASSETS.fetch(request);
+      return new Response('Not found', { status: 404 });
+    } catch (error) {
+      console.error('Worker fetch failed', error?.stack || error);
+      return json({ error: error?.message || 'Internal error' }, 500);
     }
-
-    const wsMatch = url.pathname.match(/^\/api\/rooms\/([A-Za-z0-9_-]+)\/ws$/);
-    if (wsMatch && request.method === 'GET') {
-      const auth = await authenticateTelegram(request, env);
-      if (!auth.ok) return json({ error: auth.error }, auth.status || 401);
-      const roomId = wsMatch[1];
-      const id = env.GAME_ROOM.idFromName(roomId);
-      const room = env.GAME_ROOM.get(id);
-      const upstream = new Request(`${url.origin}/room/${roomId}/ws`, request);
-      upstream.headers.set('x-king-user', JSON.stringify(auth.user));
-      return room.fetch(upstream);
-    }
-
-    if (env.ASSETS) return env.ASSETS.fetch(request);
-    return new Response('Not found', { status: 404 });
   },
 };
 
@@ -42,11 +47,6 @@ function makeRoomId(length = 6) {
   const bytes = new Uint8Array(length);
   crypto.getRandomValues(bytes);
   return Array.from(bytes, byte => ROOM_ID_ALPHABET[byte % ROOM_ID_ALPHABET.length]).join('');
-}
-
-function telegramInviteLink(env, roomId) {
-  if (!env.BOT_USERNAME || !env.APP_SHORT_NAME) throw new Error('BOT_USERNAME and APP_SHORT_NAME must be configured.');
-  return `https://t.me/${env.BOT_USERNAME}/${env.APP_SHORT_NAME}?startapp=room_${roomId}`;
 }
 
 function json(data, status = 200) {

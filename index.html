@@ -21,7 +21,6 @@
           <h1>Кинг</h1>
         </div>
         <div class="topbar-actions">
-          <button id="networkButton" class="ghost-button" type="button">Сеть</button>
           <button id="portraitButton" class="ghost-button" type="button">Портрет</button>
           <button id="rulesButton" class="ghost-button" type="button">Правила</button>
         </div>
@@ -44,13 +43,12 @@
         <section class="table" aria-label="Игровой стол">
           <div id="players" class="players"></div>
           <div id="trickArea" class="trick-area"></div>
-          <div id="statusText" class="status-text">Нажмите «Новая партия», чтобы начать.</div>
+          <div id="statusText" class="status-text">Нажмите «Начать партию», чтобы собрать сетевую партию.</div>
         </section>
 
         <section class="hand-panel" aria-label="Ваши карты">
           <div class="actions">
-            <button id="newGameButton" class="primary-button" type="button">Новая партия</button>
-            <button id="networkGameButton" class="secondary-button" type="button">Создать игру</button>
+            <button id="newGameButton" class="primary-button" type="button">Начать партию</button>
             <button id="hintButton" class="secondary-button" type="button">Подсказка</button>
           </div>
           <div id="hand" class="hand"></div>
@@ -68,15 +66,11 @@
 
       <dialog id="networkDialog" class="network-dialog">
         <form method="dialog">
-          <h2>Сетевая игра</h2>
-          <p>Нажмите «Создать игру», чтобы создать комнату Cloudflare. После получения roomId хост появится в первом месте, а кнопка «Пригласить» откроет выбор контакта, группы или чата в Telegram.</p>
+          <h2>Состав партии</h2>
+          <p>Первое место занимает хост. Остальные места по умолчанию играют компьютеры — можно сразу начинать или пригласить друзей на конкретные места.</p>
           <div id="invitePreview" class="invite-preview"></div>
-          <div id="lobbyPlayers" class="lobby-players" aria-live="polite"></div>
-          <div id="inviteLink" class="invite-link compact-invite-link" aria-live="polite">Ссылка появится после создания комнаты.</div>
+          <div id="lobbyPlayers" class="lobby-players lobby-seats" aria-live="polite"></div>
           <div class="dialog-actions">
-            <button id="shareInviteButton" class="primary-button invite-main-button" type="button" disabled>Пригласить</button>
-            <button id="copyInviteButton" class="secondary-button copy-link-button" type="button" disabled>Скопировать ссылку</button>
-            <button id="readyNetworkButton" class="secondary-button" type="button">Готов</button>
             <button id="startNetworkButton" class="primary-button" value="close">Начать игру</button>
           </div>
         </form>

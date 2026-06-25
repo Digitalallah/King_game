@@ -339,3 +339,27 @@ h1 {
   padding-inline: 10px;
   font-size: .78rem;
 }
+
+.lobby-seat {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+}
+
+.lobby-seat.pending {
+  border-color: var(--dos-yellow);
+}
+
+.lobby-seat.bot {
+  color: var(--dos-cyan);
+}
+
+.seat-action {
+  min-height: 32px;
+  padding-inline: 8px;
+  font-size: .74rem;
+}
+
+@media (max-width: 520px) {
+  .lobby-seat { grid-template-columns: auto minmax(0, 1fr); }
+  .seat-action { grid-column: 1 / -1; width: 100%; }
+}

@@ -47,14 +47,14 @@ let networkClient = null;
 let networkRole = 'host';
 let networkReady = false;
 let currentInviteLink = '';
+let roomSnapshot = null;
 let networkCreating = false;
 const urlParams = new URLSearchParams(window.location.search);
 const telegramStartParam = tg?.initDataUnsafe?.start_param || urlParams.get('tgWebAppStartParam') || '';
-const telegramRoomInvite = telegramStartParam.startsWith('room_') ? telegramStartParam.slice('room_'.length) : '';
-const browserInviteSeat = Number(urlParams.get('king_seat') || 0);
+const inviteMatch = telegramStartParam.match(/^room_([A-Za-z0-9_-]+)(?:_seat_([1-4]))?$/);
 const pendingInvite = {
-  room: telegramRoomInvite || urlParams.get('room_id') || urlParams.get('king_room'),
-  seat: browserInviteSeat >= 1 && browserInviteSeat <= 3 ? browserInviteSeat : 0,
+  room: inviteMatch?.[1] || urlParams.get('room_id') || urlParams.get('king_room'),
+  seat: inviteMatch?.[2] ? Number(inviteMatch[2]) - 1 : Number(urlParams.get('king_seat') || 0),
 };
 const isInviteGuest = Boolean(pendingInvite.room);
 const CONTRACT_TYPES = [
@@ -373,127 +373,100 @@ function formatCard(card) {
   return `${card.rank.id}${card.suit.symbol}`;
 }
 
-function makeRoomId() {
-  return (crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`).replaceAll('-', '').slice(0, 16);
-}
-
-function inviteSeat() {
-  return [1, 2, 3].find(seat => !generatedInviteSeats.includes(seat));
-}
-
 function inviteConfigError() {
   if (!TELEGRAM_BOT_USERNAME) return 'Не задано имя Telegram-бота в конфиге.';
   if (!TELEGRAM_APP_NAME) return 'Не задано имя Telegram Mini App в конфиге.';
   return '';
 }
 
-function buildInviteLink() {
-  const configError = networkConfigError();
+function buildInviteLink(seatIndex) {
+  const configError = inviteConfigError();
   if (configError) throw new Error(configError);
   const roomId = networkClient?.room;
   if (!roomId) throw new Error('Комната ещё не создана.');
-  return `https://t.me/${TELEGRAM_BOT_USERNAME}/${TELEGRAM_APP_NAME}?startapp=room_${roomId}`;
+  return `https://t.me/${TELEGRAM_BOT_USERNAME}/${TELEGRAM_APP_NAME}?startapp=room_${roomId}_seat_${seatIndex + 1}`;
 }
 
-function updateInvitePreview(link = currentInviteLink) {
+function roomSeats() {
+  const seats = roomSnapshot?.seats || [];
+  return [0, 1, 2, 3].map(index => seats[index] || {
+    seat: index,
+    type: index === 0 ? 'human' : 'bot',
+    name: index === 0 ? playerDisplayName() : `Компьютер ${index}`,
+    photoUrl: index === 0 ? telegramPhotoUrl() : '',
+    host: index === 0,
+    connected: index === 0,
+  });
+}
+
+function updateInvitePreview() {
   const configError = networkConfigError();
-  currentInviteLink = configError ? '' : link;
-  const nextSeat = inviteSeat();
-  const connected = lobbyPlayers.length || (networkClient ? 1 : 0);
-  el.invitePreview.textContent = configError || (nextSeat
-    ? `В комнате игроков: ${connected}/4. Минимум для старта: 2. Ссылка автоматически добавит следующего игрока.`
-    : 'Комната заполнена: четыре игрока подключены. Можно начинать сетевую партию.');
+  const seats = roomSeats();
+  const humans = seats.filter(seat => seat.type === 'human').length;
+  el.invitePreview.textContent = configError || `Игроков: ${humans}/4. Свободные места останутся компьютерами.`;
   if (el.lobbyPlayers) {
-    const seats = [0, 1, 2, 3].map(seat => lobbyPlayers.find(player => player.seat === seat) || { seat });
-    el.lobbyPlayers.innerHTML = seats.map(player => {
-      const occupied = Boolean(player.name);
-      const title = player.seat === 0 ? 'Хост' : `Место ${player.seat + 1}`;
-      const avatar = occupied && player.photoUrl
-        ? `<img class="avatar mini-avatar telegram-avatar" src="${escapeHtml(player.photoUrl)}" alt="" />`
-        : avatarHtml(player.character ?? player.seat, 'mini-avatar');
-      const status = occupied ? (player.connected ? 'Подключён' : 'Отключён, место удерживается') : 'Свободно';
-      const ready = occupied ? (player.ready ? 'Готов' : 'Не готов') : '—';
-      return `<div class="lobby-player ${occupied ? '' : 'muted'}">${avatar}<span><b>${title}</b>: ${occupied ? escapeHtml(player.seat === localSeat ? 'Вы' : player.name) : 'пусто'}<small>${status} · ${ready}</small></span></div>`;
-    }).join('');
-  }
-  if (el.inviteLink) el.inviteLink.textContent = currentInviteLink || 'Ссылка появится после создания комнаты.';
-  if (el.shareInviteButton) el.shareInviteButton.disabled = Boolean(configError) || !currentInviteLink || networkCreating || !nextSeat;
-  if (el.copyInviteButton) el.copyInviteButton.disabled = Boolean(configError) || !currentInviteLink;
-  if (el.networkGameButton) el.networkGameButton.disabled = Boolean(configError) || networkCreating;
-  if (el.readyNetworkButton) {
-    el.readyNetworkButton.disabled = Boolean(configError) || !networkClient;
-    el.readyNetworkButton.textContent = networkReady ? 'Не готов' : 'Готов';
+    el.lobbyPlayers.innerHTML = seats.map(seat => lobbySeatHtml(seat)).join('');
   }
   if (el.startNetworkButton) {
     el.startNetworkButton.hidden = networkRole !== 'host';
-    el.startNetworkButton.disabled = Boolean(configError) || connected < 2 || networkRole !== 'host';
+    el.startNetworkButton.disabled = Boolean(configError) || networkCreating || networkRole !== 'host';
   }
 }
 
+function lobbySeatHtml(seat) {
+  const isLocal = seat.userId && roomSnapshot?.localUserId === seat.userId || seat.seat === localSeat && seat.type === 'human';
+  const title = seat.seat === 0 ? 'Место 1' : `Место ${seat.seat + 1}`;
+  const photo = seat.photoUrl ? `<img class="avatar mini-avatar telegram-avatar" src="${escapeHtml(seat.photoUrl)}" alt="" />` : avatarHtml(seat.seat, 'mini-avatar');
+  const label = seat.type === 'pending' ? 'Ожидаем друга' : seat.type === 'bot' ? `Компьютер ${seat.seat}` : (isLocal ? 'Вы' : escapeHtml(seat.name));
+  const status = seat.type === 'human' ? (seat.host ? 'Хост' : (seat.connected ? 'Подключён' : 'Отключён')) : seat.type === 'pending' ? 'Ожидаем друга' : 'Компьютер';
+  const action = networkRole === 'host' && seat.seat > 0 && seat.type === 'bot'
+    ? `<button class="secondary-button seat-action" type="button" data-invite-seat="${seat.seat}">Пригласить друга</button>`
+    : networkRole === 'host' && seat.seat > 0 && seat.type === 'pending'
+      ? `<button class="secondary-button seat-action" type="button" data-cancel-seat="${seat.seat}">Отменить</button>`
+      : '';
+  return `<div class="lobby-player lobby-seat ${seat.type}">${photo}<span><b>${title}</b>: ${label}<small>${status}</small></span>${action}</div>`;
+}
 
 function escapeHtml(value) {
   return String(value || '').replace(/[&<>'"]/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[char]));
 }
 
-function copyInvite() {
-  const link = currentInviteLink;
-  if (!link) return;
-  navigator.clipboard?.writeText(link);
-  state.message = 'Ссылка скопирована. Отправьте её игроку.';
-  render();
-}
-
-function shareInvite() {
-  if (!currentInviteLink || !networkClient?.room) {
-    updateInvitePreview();
-    return;
-  }
-  const inviteUrl = buildInviteLink();
-  const shareUrl =
-    `https://t.me/share/url?url=${encodeURIComponent(inviteUrl)}` +
-    `&text=${encodeURIComponent('Давай поиграем в Кинг:')}`;
-
-  if (window.Telegram?.WebApp?.openTelegramLink) {
-    window.Telegram.WebApp.openTelegramLink(shareUrl);
-  } else {
-    window.open(shareUrl, '_blank', 'noopener,noreferrer');
-  }
-}
-
-async function createNetworkRoomAndOpenLobby() {
-  if (!el.networkDialog.open) el.networkDialog.showModal();
+async function inviteFriend(seatIndex) {
   networkCreating = true;
   updateInvitePreview();
   try {
-    const roomId = await ensureNetworkHost();
-    currentInviteLink = buildInviteLink();
-    state.message = `Комната ${roomId} создана. Можно пригласить игрока.`;
+    await ensureNetworkHost();
+    networkClient.reserveSeat(seatIndex);
+    const inviteUrl = buildInviteLink(seatIndex);
+    const shareUrl =
+      `https://t.me/share/url?url=${encodeURIComponent(inviteUrl)}` +
+      `&text=${encodeURIComponent('Присоединяйся к моей игре в Кинг')}`;
+    if (window.Telegram?.WebApp?.openTelegramLink) window.Telegram.WebApp.openTelegramLink(shareUrl);
+    else window.open(shareUrl, '_blank', 'noopener,noreferrer');
   } catch (error) {
     state.message = error.message;
+    render();
   } finally {
     networkCreating = false;
     updateInvitePreview();
-    render();
   }
 }
 
-function toggleNetworkReady() {
-  networkReady = !networkReady;
-  networkClient?.setReady(networkReady);
-  updateInvitePreview(currentInviteLink);
+function cancelInvite(seatIndex) {
+  networkClient?.cancelSeat(seatIndex);
+}
+
+async function openNetworkLobby() {
+  if (!el.networkDialog.open) el.networkDialog.showModal();
+  await ensureNetworkHost().catch(error => { state.message = error.message; render(); });
+  updateInvitePreview();
 }
 
 function startNetworkGame(event) {
-  const connectedCount = lobbyPlayers.length || 1;
-  if (connectedCount < 2) {
-    event?.preventDefault();
-    state.message = 'Нужно минимум два игрока в комнате, чтобы начать сетевую игру.';
-    render();
-    return;
-  }
   event?.preventDefault();
-  networkClient?.startGame();
-  state.message = 'Запрошен старт сетевой игры. Карточная логика пока остаётся в одиночном режиме.';
+  if (networkClient) networkClient.startGame();
+  else startGame({ mode: 'network' });
+  state.message = 'Начинаем партию. Свободные места играют компьютеры.';
   render();
 }
 
@@ -504,47 +477,44 @@ function networkConfigError() {
   return '';
 }
 
+function telegramPhotoUrl() {
+  return tg?.initDataUnsafe?.user?.photo_url || '';
+}
 
 function playerDisplayName() {
   const tgUser = tg?.initDataUnsafe?.user;
-  return tgUser?.first_name || CHARACTERS[selectedCharacter]?.name || 'Игрок';
+  return [tgUser?.first_name, tgUser?.last_name].filter(Boolean).join(' ') || tgUser?.username || CHARACTERS[selectedCharacter]?.name || 'Игрок';
 }
 
-function updateLobbyPlayers(players) {
-  lobbyPlayers = players;
-  if (networkClient?.room) {
-    try { currentInviteLink = buildInviteLink(); } catch {}
-  }
-  generatedInviteSeats = players.filter(player => player.seat > 0).map(player => player.seat);
-  if (networkRole === 'host') {
-    players.forEach(player => {
-      if (player.seat >= 0 && player.seat <= 3) {
-        playerNames[player.seat] = player.seat === localSeat ? 'Вы' : player.name;
-        playerTypes[player.seat] = player.seat === localSeat ? 'local' : 'remote';
-        playerCharacters[player.seat] = player.character ?? playerCharacters[player.seat];
-      }
-    });
-  }
-  updateInvitePreview(currentInviteLink);
+function updateLobbyPlayers(room) {
+  roomSnapshot = room;
+  lobbyPlayers = (room?.seats || []).filter(seat => seat.type === 'human');
+  generatedInviteSeats = (room?.seats || []).filter(seat => seat.type === 'human' && seat.seat > 0).map(seat => seat.seat);
+  (room?.seats || []).forEach(seat => {
+    if (seat.type === 'human') {
+      playerNames[seat.seat] = seat.seat === localSeat ? 'Вы' : seat.name;
+      playerTypes[seat.seat] = seat.seat === localSeat ? 'local' : 'remote';
+    } else {
+      playerNames[seat.seat] = seat.seat === 0 ? 'Хост' : `Компьютер ${seat.seat}`;
+      playerTypes[seat.seat] = 'bot';
+    }
+  });
+  updateInvitePreview();
   render();
 }
 
 async function ensureNetworkHost() {
   if (networkClient) return networkClient.room;
   const configError = networkConfigError();
-  if (configError) {
-    state.message = configError;
-    render();
-    throw new Error(configError);
-  }
+  if (configError) throw new Error(configError);
   networkRole = 'host';
   const response = await fetch('/api/rooms', { method: 'POST', headers: telegramAuthHeaders() });
-  if (!response.ok) throw new Error('Не удалось создать комнату Cloudflare.');
+  if (!response.ok) throw new Error(`Не удалось создать комнату Cloudflare: HTTP ${response.status} ${await response.text()}`);
   const { roomId } = await response.json();
   if (!roomId) throw new Error('Сервер не вернул roomId.');
-  networkClient = new WorkerRoomClient(roomId);
+  networkClient = new WorkerRoomClient(roomId, 0);
   networkClient.onLobby = updateLobbyPlayers;
-  networkClient.onStarted = () => { state.message = 'Хост начал игру. Перенос карточной логики будет добавлен позже.'; render(); };
+  networkClient.onStarted = () => { startGame({ mode: 'network' }); if (el.networkDialog?.open) el.networkDialog.close(); };
   networkClient.connect();
   return networkClient.room;
 }
@@ -575,10 +545,10 @@ function connectGuest() {
     return;
   }
   el.newGameButton.disabled = true;
-  el.networkButton.disabled = true;
-  el.networkGameButton.disabled = true;
+  if (el.networkButton) el.networkButton.disabled = true;
+  if (el.networkGameButton) el.networkGameButton.disabled = true;
   networkRole = 'guest';
-  networkClient = new WorkerRoomClient(pendingInvite.room);
+  networkClient = new WorkerRoomClient(pendingInvite.room, pendingInvite.seat);
   networkClient.onLobby = updateLobbyPlayers;
   networkClient.onWelcome = ({ seat }) => setupGuestPlayers(seat);
   networkClient.connect();
@@ -599,8 +569,9 @@ function telegramAuthHeaders() {
 }
 
 class WorkerRoomClient {
-  constructor(room) {
+  constructor(room, seat = 0) {
     this.room = room;
+    this.seat = seat;
     this.ws = null;
     this.onLobby = () => {};
     this.onWelcome = () => {};
@@ -610,6 +581,7 @@ class WorkerRoomClient {
   connect() {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const url = new URL(`${protocol}//${window.location.host}/api/rooms/${this.room}/ws`);
+    if (this.seat) url.searchParams.set('seat', String(this.seat));
     if (tg?.initData) url.searchParams.set('initData', tg.initData);
     if (DEV_AUTH_ENABLED && !tg?.initData) {
       url.searchParams.set('dev', '1');
@@ -634,7 +606,7 @@ class WorkerRoomClient {
       return;
     }
     if (message.type === 'roomState') {
-      this.onLobby((message.room?.seats || []).filter(Boolean));
+      this.onLobby(message.room);
       return;
     }
     if (message.type === 'gameStarting') this.onStarted(message);
@@ -649,6 +621,8 @@ class WorkerRoomClient {
   }
 
   setReady(ready) { this.send({ type: 'setReady', ready }); }
+  reserveSeat(seat) { this.send({ type: 'reserveSeat', seat }); }
+  cancelSeat(seat) { this.send({ type: 'cancelSeat', seat }); }
   startGame() { this.send({ type: 'startGame' }); }
 }
 
@@ -678,6 +652,7 @@ function render() {
   el.roundLabel.textContent = `Раунд ${Math.min(state.round + 1, CONTRACTS.length)}/${CONTRACTS.length}`;
   el.roundProgress.style.width = `${(Math.min(state.round + 1, CONTRACTS.length) / CONTRACTS.length) * 100}%`;
   el.statusText.textContent = state.message;
+  if (el.hintButton) el.hintButton.hidden = !state.running;
   renderScores();
   renderPlayers();
   renderTrick();
@@ -722,14 +697,20 @@ el.hand.addEventListener('click', event => {
   const button = event.target.closest('[data-card-id]');
   if (button) playCard(localSeat, button.dataset.cardId);
 });
-el.newGameButton.addEventListener('click', startGame);
+el.newGameButton.addEventListener('click', openNetworkLobby);
 el.hintButton.addEventListener('click', hint);
-el.networkButton.addEventListener('click', () => { updateInvitePreview(); el.networkDialog.showModal(); });
-el.networkGameButton.addEventListener('click', createNetworkRoomAndOpenLobby);
-el.copyInviteButton.addEventListener('click', copyInvite);
-el.shareInviteButton.addEventListener('click', shareInvite);
-el.readyNetworkButton.addEventListener('click', toggleNetworkReady);
+el.networkButton?.addEventListener('click', () => { updateInvitePreview(); el.networkDialog.showModal(); });
+el.networkGameButton?.addEventListener('click', openNetworkLobby);
+el.copyInviteButton?.addEventListener('click', () => {});
+el.shareInviteButton?.addEventListener('click', () => {});
+el.readyNetworkButton?.addEventListener('click', () => {});
 el.startNetworkButton.addEventListener('click', startNetworkGame);
+el.lobbyPlayers?.addEventListener('click', event => {
+  const invite = event.target.closest('[data-invite-seat]');
+  const cancel = event.target.closest('[data-cancel-seat]');
+  if (invite) inviteFriend(Number(invite.dataset.inviteSeat));
+  if (cancel) cancelInvite(Number(cancel.dataset.cancelSeat));
+});
 el.rulesButton.addEventListener('click', () => el.rulesDialog.showModal());
 el.portraitButton.addEventListener('click', () => el.portraitDialog.showModal());
 el.portraitGrid.addEventListener('click', event => {
@@ -751,5 +732,5 @@ if (isInviteGuest) {
 } else {
   setupPlayers();
   render();
-  el.portraitDialog.showModal();
+  render();
 }

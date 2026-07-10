@@ -12,14 +12,4 @@ export default {
       return handleApiRequest(request, env, url);
     }
 
-    if (env.ASSETS) return env.ASSETS.fetch(request);
-    return new Response('Not found', { status: 404 });
-  },
-};
-
-async function handleApiRequest(request, env, url) {
-  try {
-    if (request.method === 'OPTIONS') return corsResponse(null, 204);
-
-    if (url.pathname === '/api/health' && request.method === 'GET') {
-      return json({
+    if (env.ASSETS

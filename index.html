@@ -10,7 +10,7 @@
     <meta http-equiv="Pragma" content="no-cache" />
     <meta http-equiv="Expires" content="0" />
     <title>Кинг — Telegram Mini App</title>
-    <link rel="stylesheet" href="./src/styles.css" />
+    <link rel="stylesheet" href="./src/styles.css?v=multiplayer-2" />
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
   </head>
   <body>
@@ -31,7 +31,7 @@
           <div class="contract-card">
             <span class="label">Контракт</span>
             <strong id="contractTitle">—</strong>
-            <p id="contractDescription">Загрузка партии…</p>
+            <p id="contractDescription">Сначала соберите состав партии.</p>
           </div>
           <div class="round-progress">
             <span id="roundLabel">Раунд 1/14</span>
@@ -43,7 +43,7 @@
         <section class="table" aria-label="Игровой стол">
           <div id="players" class="players"></div>
           <div id="trickArea" class="trick-area"></div>
-          <div id="statusText" class="status-text">Нажмите «Начать партию», чтобы собрать сетевую партию.</div>
+          <div id="statusText" class="status-text">Нажмите «Начать партию», чтобы собрать общую игру.</div>
         </section>
 
         <section class="hand-panel" aria-label="Ваши карты">
@@ -58,9 +58,9 @@
       <dialog id="portraitDialog" class="portrait-dialog">
         <form method="dialog">
           <h2>Выберите портрет</h2>
-          <p>Пиксельные герои для вас и ботов: животные, странные типы и сияющие красотки.</p>
+          <p>Портрет используется как локальное оформление, если у Telegram нет фотографии профиля.</p>
           <div id="portraitGrid" class="portrait-grid" aria-label="Выбор портрета"></div>
-          <button class="primary-button" value="close">Играть</button>
+          <button class="primary-button" value="close">Готово</button>
         </form>
       </dialog>
 
@@ -79,7 +79,7 @@
       <dialog id="rulesDialog" class="rules-dialog">
         <form method="dialog">
           <h2>Как играть</h2>
-          <p>Это адаптация оригинального «Кинга» для одного игрока против трех ботов. Игра идет 14 контрактами: сначала штрафные задания, затем те же задания на плюс.</p>
+          <p>Это общая сетевая партия: сервер раздаёт одну колоду всем участникам, проверяет ходы и считает очки. Свободные места занимают компьютеры.</p>
           <ul>
             <li>Ходите картой той же масти, если она есть.</li>
             <li>Взятку забирает старшая карта масти первого хода.</li>
@@ -91,6 +91,6 @@
         </form>
       </dialog>
     </div>
-    <script type="module" src="./src/game.js"></script>
+    <script type="module" src="./src/game-v2.js?v=multiplayer-2"></script>
   </body>
 </html>

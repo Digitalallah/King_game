@@ -3,6 +3,7 @@ export { GameRoom } from './game-room.js';
 const ROOM_ID_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const API_PREFIX = '/api/';
 const ROOMS_BINDING = 'GAME_ROOM';
+const BUILD_MARKER = 'network-foundation-fix-1';
 
 export default {
   async fetch(request, env) {
@@ -22,7 +23,14 @@ async function handleApiRequest(request, env, url) {
     if (request.method === 'OPTIONS') return corsResponse(null, 204);
 
     if (url.pathname === '/api/health' && request.method === 'GET') {
-      return json({ ok: true, binding: ROOMS_BINDING, hasGameRooms: Boolean(env[ROOMS_BINDING]) });
+      return json({
+        ok: true,
+        build: BUILD_MARKER,
+        binding: ROOMS_BINDING,
+        hasGameRooms: Boolean(env[ROOMS_BINDING]),
+        hasAssets: Boolean(env.ASSETS),
+        hasBotToken: Boolean(env.BOT_TOKEN),
+      });
     }
 
     if (url.pathname === '/api/rooms') {
@@ -34,11 +42,15 @@ async function handleApiRequest(request, env, url) {
     if (wsMatch && request.method === 'GET') {
       const auth = await authenticateTelegram(request, env);
       if (!auth.ok) return json({ ok: false, error: auth.error }, auth.status || 401);
+
       const roomId = wsMatch[1];
       const binding = gameRoomsBinding(env);
       const id = binding.idFromName(roomId);
       const room = binding.get(id);
-      const upstream = new Request(`${url.origin}/room/${roomId}/ws`, request);
+
+      const upstreamUrl = new URL(`/room/${roomId}/ws`, url.origin);
+      upstreamUrl.search = url.search;
+      const upstream = new Request(upstreamUrl.toString(), request);
       upstream.headers.set('x-king-user', JSON.stringify(auth.user));
       return room.fetch(upstream);
     }

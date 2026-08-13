@@ -1,4 +1,4 @@
-const BUILD_MARKER = 'native-single-player-5';
+const BUILD_MARKER = 'native-single-player-6';
 
 const SECURITY_HEADERS = {
   'Content-Security-Policy': [

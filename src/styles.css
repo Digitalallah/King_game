@@ -42,6 +42,11 @@ button:active {
   box-shadow: none;
 }
 
+#soundButton[aria-pressed="false"] {
+  background: #555;
+  color: #e0e0e0;
+}
+
 button:focus-visible,
 canvas:focus-visible,
 a:focus-visible {
@@ -313,7 +318,7 @@ a {
 
   .control-buttons {
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .control-buttons button {

@@ -106,6 +106,7 @@ test('native UI handles mobile taps and completes all fourteen contracts', { tim
     '#loadingBar': 'loadingBar',
     '#retryButton': 'retryButton',
     '#restartButton': 'restartButton',
+    '#soundButton': 'soundButton',
     '#rulesButton': 'rulesButton',
     '#aboutButton': 'aboutButton',
     '#rulesDialog': 'rulesDialog',
@@ -123,6 +124,7 @@ test('native UI handles mobile taps and completes all fourteen contracts', { tim
     },
   };
   let fullscreenRequests = 0;
+  const storedValues = new Map();
   globalThis.ImageData = MockImageData;
   globalThis.location = { search: '?seed=50057&speed=0.01' };
   Object.defineProperty(globalThis, 'navigator', {
@@ -139,6 +141,10 @@ test('native UI handles mobile taps and completes all fourteen contracts', { tim
       return { matches: false };
     },
     addEventListener() {},
+    localStorage: {
+      getItem(key) { return storedValues.get(key) ?? null; },
+      setItem(key, value) { storedValues.set(key, String(value)); },
+    },
     Telegram: {
       WebApp: {
         platform: 'android',
@@ -183,6 +189,14 @@ test('native UI handles mobile taps and completes all fourteen contracts', { tim
 
   const debug = await eventually(() => window.__kingDebug);
   await eventually(() => debug.snapshot().screen === 'partners');
+  assert.equal(element('soundButton').textContent, 'Звук: вкл');
+  element('soundButton').emit('click');
+  assert.equal(element('soundButton').textContent, 'Звук: выкл');
+  assert.equal(element('soundButton').attributes.get('aria-pressed'), 'false');
+  assert.equal(storedValues.get('king-sound-enabled'), 'false');
+  element('soundButton').emit('click');
+  assert.equal(element('soundButton').textContent, 'Звук: вкл');
+  assert.equal(storedValues.get('king-sound-enabled'), 'true');
   assert.ok(context.lastFrame, 'the partner picker rendered a canvas frame');
   await captureFrame(context, 'partners');
 

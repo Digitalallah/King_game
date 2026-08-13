@@ -12,13 +12,13 @@ import {
   shuffleDeck,
   trickWinner,
   updateCardTapSelection,
-} from './game-engine.js?v=native-5';
+} from './game-engine.js?v=native-6';
 import {
   IndexedRenderer,
   loadKingAssets,
   SCREEN_HEIGHT,
   SCREEN_WIDTH,
-} from './native-assets.js?v=native-5';
+} from './native-assets.js?v=native-6';
 
 const tg = window.Telegram?.WebApp;
 
@@ -30,6 +30,7 @@ const el = {
   loadingBar: document.querySelector('#loadingBar'),
   retryButton: document.querySelector('#retryButton'),
   restartButton: document.querySelector('#restartButton'),
+  soundButton: document.querySelector('#soundButton'),
   rulesButton: document.querySelector('#rulesButton'),
   aboutButton: document.querySelector('#aboutButton'),
   rulesDialog: document.querySelector('#rulesDialog'),
@@ -49,6 +50,7 @@ const CARD_REVEAL_MS = 620;
 const TRICK_COLLECT_HOLD_MS = 650;
 const CONTRACT_RESULT_MS = 2600;
 const ORIENTATION_HINT_MS = 3200;
+const SOUND_STORAGE_KEY = 'king-sound-enabled';
 const TRICK_POSITIONS = [
   { x: 295, y: 182 },
   { x: 243, y: 151 },
@@ -83,6 +85,8 @@ let paused = false;
 let orientationHintTimer = null;
 let landscapeFullscreenRequested = false;
 let audioContext = null;
+let audioMasterGain = null;
+let soundEnabled = readSoundPreference();
 const landscapeMedia = window.matchMedia?.('(orientation: landscape)') ?? null;
 const coarsePointerMedia = window.matchMedia?.('(pointer: coarse)') ?? null;
 
@@ -205,11 +209,38 @@ function delay(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-function prepareAudio() {
+function readSoundPreference() {
+  try {
+    return window.localStorage?.getItem(SOUND_STORAGE_KEY) !== 'false';
+  } catch {
+    return true;
+  }
+}
+
+function saveSoundPreference() {
+  try {
+    window.localStorage?.setItem(SOUND_STORAGE_KEY, String(soundEnabled));
+  } catch {
+    // The game still works when Telegram or the browser blocks persistent storage.
+  }
+}
+
+function syncSoundButton() {
+  el.soundButton.textContent = soundEnabled ? 'Звук: вкл' : 'Звук: выкл';
+  el.soundButton.setAttribute('aria-pressed', String(soundEnabled));
+}
+
+function prepareAudio(force = false) {
+  if (!soundEnabled && !force) return null;
   const AudioContextClass = window.AudioContext ?? window.webkitAudioContext;
   if (!AudioContextClass) return null;
   try {
     if (!audioContext) audioContext = new AudioContextClass();
+    if (!audioMasterGain) {
+      audioMasterGain = audioContext.createGain();
+      audioMasterGain.gain.setValueAtTime(soundEnabled ? 1 : 0, audioContext.currentTime);
+      audioMasterGain.connect(audioContext.destination);
+    }
     if (audioContext.state === 'suspended') {
       const resumePromise = audioContext.resume();
       resumePromise?.catch?.(() => {});
@@ -221,6 +252,7 @@ function prepareAudio() {
 }
 
 function playSpeakerSequence(tones) {
+  if (!soundEnabled) return;
   const context = prepareAudio();
   if (!context || context.state === 'closed') return;
 
@@ -237,7 +269,7 @@ function playSpeakerSequence(tones) {
       gain.gain.setValueAtTime(tone.volume ?? 0.018, Math.max(startAt + 0.004, startAt + duration - 0.012));
       gain.gain.exponentialRampToValueAtTime(0.0001, startAt + duration);
       oscillator.connect(gain);
-      gain.connect(context.destination);
+      gain.connect(audioMasterGain ?? context.destination);
       oscillator.start(startAt);
       oscillator.stop(startAt + duration + 0.004);
       startAt += duration + ((tone.gap ?? 0) / 1000);
@@ -871,6 +903,18 @@ function openInfoDialog(dialog) {
 }
 
 el.restartButton.addEventListener('click', resetToPartnerPicker);
+el.soundButton.addEventListener('click', () => {
+  soundEnabled = !soundEnabled;
+  saveSoundPreference();
+  syncSoundButton();
+  if (audioMasterGain && audioContext?.state !== 'closed') {
+    audioMasterGain.gain.setValueAtTime(soundEnabled ? 1 : 0, audioContext.currentTime);
+  }
+  if (soundEnabled) {
+    prepareAudio(true);
+    playSelectionSound();
+  }
+});
 el.retryButton.addEventListener('click', startApplication);
 el.rulesButton.addEventListener('click', () => openInfoDialog(el.rulesDialog));
 el.aboutButton.addEventListener('click', () => openInfoDialog(el.aboutDialog));
@@ -920,4 +964,5 @@ window.__kingDebug = {
 
 initTelegram();
 initOrientationHandling();
+syncSoundButton();
 startApplication();

@@ -11,13 +11,13 @@ import {
   shuffleDeck,
   trickWinner,
   updateCardTapSelection,
-} from './game-engine.js?v=native-3';
+} from './game-engine.js?v=native-4';
 import {
   IndexedRenderer,
   loadKingAssets,
   SCREEN_HEIGHT,
   SCREEN_WIDTH,
-} from './native-assets.js?v=native-3';
+} from './native-assets.js?v=native-4';
 
 const tg = window.Telegram?.WebApp;
 
@@ -45,6 +45,7 @@ const CARD_SELECTED_Y = 269;
 const TAP_MOVE_LIMIT_CSS = 28;
 const AI_THINK_MS = 950;
 const CARD_REVEAL_MS = 620;
+const TRICK_COLLECT_HOLD_MS = 650;
 const CONTRACT_RESULT_MS = 2600;
 const ORIENTATION_HINT_MS = 3200;
 const TRICK_POSITIONS = [
@@ -648,6 +649,7 @@ async function collectCompletedTrick(token) {
   playTrickSound();
   render();
   if (!await holdForOnePaint(token)) return;
+  if (!await gameDelay(TRICK_COLLECT_HOLD_MS, token)) return;
 
   game.trick = [];
   game.trickWinnerSeat = null;

@@ -1,5 +1,16 @@
 const BUILD_MARKER = 'single-player-original-1';
 
+// Keep the already-provisioned Durable Object namespace deployable without
+// exposing network play. No active route forwards requests to this class.
+export class GameRoom {
+  async fetch() {
+    return Response.json(
+      { ok: false, error: 'Network mode is disabled in this prototype.' },
+      { status: 404 },
+    );
+  }
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);

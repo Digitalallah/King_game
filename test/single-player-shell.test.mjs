@@ -63,7 +63,20 @@ test('partner choice, player turn and completed trick are explicit', () => {
   assert.match(source, /'ВАШ ХОД'/);
   assert.match(source, /game\.status = 'trick-await'/);
   assert.match(source, /collectCompletedTrick/);
+  assert.match(source, /holdForOnePaint/);
+  assert.match(source, /TRICK_STACK_STEPS/);
+  assert.doesNotMatch(source, /TRICK_COLLECT_STEPS|trickCollectionProgress/);
   assert.match(source, /document\.addEventListener\('pointerup'/);
+});
+
+test('the native port uses restrained PC Speaker-style Web Audio cues', () => {
+  const source = readFileSync(new URL('../src/native-game.js', import.meta.url), 'utf8');
+  assert.match(source, /AudioContext/);
+  assert.match(source, /oscillator\.type = 'square'/);
+  assert.match(source, /playSelectionSound/);
+  assert.match(source, /playCardSound/);
+  assert.match(source, /playTrickSound/);
+  assert.match(source, /frequency: 100, duration: 100/);
 });
 
 test('Cloudflare assets exclude emulator files and repository internals', () => {
@@ -91,7 +104,7 @@ test('health reports the native single-player build', async () => {
   assert.equal(response.status, 200);
   const health = await response.json();
   assert.equal(health.mode, 'single-player');
-  assert.equal(health.build, 'native-single-player-2');
+  assert.equal(health.build, 'native-single-player-3');
   assert.equal(response.headers.get('cache-control'), 'no-store');
   assert.equal(response.headers.get('x-content-type-options'), 'nosniff');
 });

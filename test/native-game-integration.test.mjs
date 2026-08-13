@@ -222,9 +222,26 @@ test('native UI handles mobile taps and completes all fourteen contracts', { tim
   assert.equal(debug.snapshot().game.status, 'trick-await');
   assert.equal(debug.snapshot().game.trick.length, 4);
   documentListeners.get('pointerup')?.({ target: element('gameHint') });
-  assert.equal(debug.snapshot().game.status, 'trick-collecting');
-  assert.equal(debug.snapshot().game.trick.length, 4);
-  assert.ok(debug.snapshot().game.trickCollectionProgress > 0);
+  const collectingTrick = debug.snapshot().game;
+  assert.equal(collectingTrick.status, 'trick-collecting');
+  assert.equal(collectingTrick.trick.length, 4);
+  assert.equal(collectingTrick.trickWinnerSeat, collectingTrick.currentSeat);
+  const anchors = [
+    { x: 295, y: 182 },
+    { x: 243, y: 151 },
+    { x: 295, y: 120 },
+    { x: 347, y: 151 },
+  ];
+  const winnerPosition = collectingTrick.trickVisualPositions
+    .find(cardPosition => cardPosition.seat === collectingTrick.trickWinnerSeat);
+  assert.deepEqual(
+    { x: winnerPosition.x, y: winnerPosition.y },
+    anchors[collectingTrick.trickWinnerSeat],
+  );
+  assert.ok(collectingTrick.trickVisualPositions.every(cardPosition => (
+    Math.abs(cardPosition.x - winnerPosition.x) <= 12
+      && Math.abs(cardPosition.y - winnerPosition.y) <= 9
+  )));
   await captureFrame(context, 'trick-collecting');
 
   const gameDeadline = Date.now() + 20_000;

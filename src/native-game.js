@@ -11,13 +11,13 @@ import {
   shuffleDeck,
   trickWinner,
   updateCardTapSelection,
-} from './game-engine.js?v=native-2';
+} from './game-engine.js?v=native-3';
 import {
   IndexedRenderer,
   loadKingAssets,
   SCREEN_HEIGHT,
   SCREEN_WIDTH,
-} from './native-assets.js?v=native-2';
+} from './native-assets.js?v=native-3';
 
 const tg = window.Telegram?.WebApp;
 
@@ -45,10 +45,20 @@ const CARD_SELECTED_Y = 269;
 const TAP_MOVE_LIMIT_CSS = 28;
 const AI_THINK_MS = 950;
 const CARD_REVEAL_MS = 620;
-const TRICK_COLLECT_STEP_MS = 48;
-const TRICK_COLLECT_STEPS = 12;
 const CONTRACT_RESULT_MS = 2600;
 const ORIENTATION_HINT_MS = 3200;
+const TRICK_POSITIONS = [
+  { x: 295, y: 182 },
+  { x: 243, y: 151 },
+  { x: 295, y: 120 },
+  { x: 347, y: 151 },
+];
+const TRICK_STACK_STEPS = [
+  { x: 3, y: -2 },
+  { x: 4, y: 2 },
+  { x: 3, y: 3 },
+  { x: -4, y: 2 },
+];
 const PARTNER_DESCRIPTIONS = [
   ['ОН ИГРАЕТ', 'НЕПЛОХО'],
   ['ОНА ИГРАЕТ', 'ОТЛИЧНО'],
@@ -70,6 +80,7 @@ let runToken = 0;
 let paused = false;
 let orientationHintTimer = null;
 let landscapeFullscreenRequested = false;
+let audioContext = null;
 const landscapeMedia = window.matchMedia?.('(orientation: landscape)') ?? null;
 const coarsePointerMedia = window.matchMedia?.('(pointer: coarse)') ?? null;
 
@@ -192,6 +203,71 @@ function delay(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+function prepareAudio() {
+  const AudioContextClass = window.AudioContext ?? window.webkitAudioContext;
+  if (!AudioContextClass) return null;
+  try {
+    if (!audioContext) audioContext = new AudioContextClass();
+    if (audioContext.state === 'suspended') {
+      const resumePromise = audioContext.resume();
+      resumePromise?.catch?.(() => {});
+    }
+    return audioContext;
+  } catch {
+    return null;
+  }
+}
+
+function playSpeakerSequence(tones) {
+  const context = prepareAudio();
+  if (!context || context.state === 'closed') return;
+
+  let startAt = context.currentTime;
+  for (const tone of tones) {
+    try {
+      const duration = Math.max(0.012, tone.duration / 1000);
+      const oscillator = context.createOscillator();
+      const gain = context.createGain();
+      oscillator.type = 'square';
+      oscillator.frequency.setValueAtTime(tone.frequency, startAt);
+      gain.gain.setValueAtTime(0.0001, startAt);
+      gain.gain.linearRampToValueAtTime(tone.volume ?? 0.018, startAt + 0.004);
+      gain.gain.setValueAtTime(tone.volume ?? 0.018, Math.max(startAt + 0.004, startAt + duration - 0.012));
+      gain.gain.exponentialRampToValueAtTime(0.0001, startAt + duration);
+      oscillator.connect(gain);
+      gain.connect(context.destination);
+      oscillator.start(startAt);
+      oscillator.stop(startAt + duration + 0.004);
+      startAt += duration + ((tone.gap ?? 0) / 1000);
+    } catch {
+      return;
+    }
+  }
+}
+
+function playSelectionSound() {
+  playSpeakerSequence([{ frequency: 420, duration: 24, volume: 0.012 }]);
+}
+
+function playCardSound() {
+  playSpeakerSequence([{ frequency: 520, duration: 34, volume: 0.014 }]);
+}
+
+function playTrickSound() {
+  playSpeakerSequence([{ frequency: 100, duration: 100, volume: 0.012 }]);
+}
+
+async function holdForOnePaint(token) {
+  const requestFrame = typeof window.requestAnimationFrame === 'function'
+    ? callback => window.requestAnimationFrame(callback)
+    : callback => setTimeout(callback, Math.max(1, 16 * TIME_SCALE));
+  const nextFrame = () => new Promise(resolve => requestFrame(resolve));
+  await nextFrame();
+  if (token !== runToken) return false;
+  await nextFrame();
+  return token === runToken;
+}
+
 async function gameDelay(ms, token) {
   let remaining = ms * TIME_SCALE;
   let previous = performance.now();
@@ -231,11 +307,11 @@ function drawSelectedPartner(character, order) {
   const description = PARTNER_DESCRIPTIONS[row];
 
   renderer.fillRect(x, y, 80, 96, 2);
-  printCenteredShadowed(character.name, x + 40, y + 6, 14, 8, 6);
+  printCenteredShadowed(character.name, x + 40, y + 3, 14, 14, 6);
   printCenteredShadowed(`${order + 1}-й`, x + 40, y + 23, 14, 8, 6);
   printCenteredShadowed('ПАРТНЕР', x + 40, y + 38, 14, 8, 6);
-  printCenteredShadowed(description[0], x + 40, y + 56, 14, 6, 6);
-  printCenteredShadowed(description[1], x + 40, y + 70, 14, 6, 6);
+  printCenteredShadowed(description[0], x + 40, y + 55, 14, 8, 6);
+  printCenteredShadowed(description[1], x + 40, y + 70, 14, 8, 6);
 }
 
 function renderPartnerPicker() {
@@ -250,13 +326,13 @@ function renderPartnerPicker() {
     const row = Math.floor(character.id / 4);
     const selectedOrder = selectedPartnerIds.indexOf(character.id);
     if (selectedOrder >= 0) drawSelectedPartner(character, selectedOrder);
-    else printCenteredShadowed(character.name, 200 + column * 80, 101 + row * 104, 15, 8, 7);
+    else printCenteredShadowed(character.name, 200 + column * 80, 97 + row * 104, 15, 14, 7);
   }
 
   const prompt = selectedPartnerIds.length >= 3
     ? 'Партнёры выбраны...'
     : `Выберите ${selectedPartnerIds.length + 1}-го партнера...`;
-  renderer.printCentered(prompt, 320, 340, 14, 8, 7);
+  renderer.printCentered(prompt, 320, 333, 14, 14, 7);
   renderer.present();
 }
 
@@ -272,7 +348,7 @@ function drawBackFan(count, x, y, maxWidth = 136) {
 
 function drawOpponentSeat(seat, character, x, y, backsX, backsY) {
   drawCharacter(character, x, y);
-  printCenteredShadowed(character.name, x + 40, y + 80, 15, 8, 7);
+  printCenteredShadowed(character.name, x + 40, y + 74, 15, 14, 7);
   drawBackFan(game.hands[seat].length, backsX, backsY);
 }
 
@@ -288,9 +364,9 @@ function drawContractPanel() {
   const contract = CONTRACTS[game.contractIndex];
   renderer.fillRect(12, 253, 121, 59, 2);
   renderer.strokeRect(12, 253, 121, 59, 0, 2);
-  renderer.printCentered(contract.titleLines[0], 72, 262, 15, 8, 8);
-  renderer.printCentered(contract.titleLines[1], 72, 277, 15, 8, 8);
-  renderer.printCentered(contract.titleLines[2], 72, 294, contract.direction > 0 ? 10 : 11, 8, 8);
+  renderer.printCentered(contract.titleLines[0], 72, 257, 15, 14, 8);
+  renderer.printCentered(contract.titleLines[1], 72, 274, 15, 14, 8);
+  renderer.printCentered(contract.titleLines[2], 72, 291, contract.direction > 0 ? 10 : 11, 14, 8);
 }
 
 function drawScoreBox() {
@@ -306,10 +382,10 @@ function drawScoreBox() {
   renderer.drawSprite(61, 598, 305, 2);
 
   const values = game.dealScores;
-  renderer.printCentered(formatScore(values[2]), 568, 260, 15, 6, 6);
-  renderer.printCentered(formatScore(values[1]), 535, 284, 15, 6, 6);
-  renderer.printCentered(formatScore(values[3]), 601, 284, 15, 6, 6);
-  renderer.printCentered(formatScore(values[0]), 568, 308, 14, 6, 6);
+  renderer.printCentered(formatScore(values[2]), 568, 256, 15, 14, 7);
+  renderer.printCentered(formatScore(values[1]), 535, 280, 15, 14, 7);
+  renderer.printCentered(formatScore(values[3]), 601, 280, 15, 14, 7);
+  renderer.printCentered(formatScore(values[0]), 568, 304, 14, 14, 7);
 }
 
 function playerCardLayout() {
@@ -332,24 +408,31 @@ function drawPlayerHand() {
   for (const item of layout) renderer.drawSprite(item.card.spriteId, item.x, item.y);
 }
 
-function drawTrick() {
-  const positions = [
-    { x: 293, y: 182 },
-    { x: 205, y: 150 },
-    { x: 293, y: 120 },
-    { x: 369, y: 150 },
-  ];
-  const rawProgress = game.status === 'trick-collecting'
-    ? Math.max(0, Math.min(1, game.trickCollectionProgress ?? 0))
-    : 0;
-  const progress = rawProgress * rawProgress * (3 - 2 * rawProgress);
-  const center = { x: 294, y: 151 };
-  for (const entry of game.trick) {
-    const position = positions[entry.seat];
-    const x = Math.round(position.x + (center.x - position.x) * progress);
-    const y = Math.round(position.y + (center.y - position.y) * progress);
-    renderer.drawSprite(entry.card.spriteId, x, y);
+function trickDrawLayout() {
+  if (game.status !== 'trick-collecting') {
+    return game.trick.map(entry => ({ ...entry, ...TRICK_POSITIONS[entry.seat] }));
   }
+
+  const winnerSeat = game.trickWinnerSeat ?? game.currentSeat;
+  const anchor = TRICK_POSITIONS[winnerSeat];
+  const step = TRICK_STACK_STEPS[winnerSeat];
+  const ordered = [
+    ...game.trick.filter(entry => entry.seat !== winnerSeat),
+    ...game.trick.filter(entry => entry.seat === winnerSeat),
+  ];
+
+  return ordered.map((entry, index) => {
+    const depth = ordered.length - index - 1;
+    return {
+      ...entry,
+      x: anchor.x + step.x * depth,
+      y: anchor.y + step.y * depth,
+    };
+  });
+}
+
+function drawTrick() {
+  for (const entry of trickDrawLayout()) renderer.drawSprite(entry.card.spriteId, entry.x, entry.y);
 }
 
 function drawPlayerSeatLabel() {
@@ -357,13 +440,13 @@ function drawPlayerSeatLabel() {
     && game.currentSeat === PLAYER_SEAT
     && !inputLocked;
   if (!isPlayerTurn) {
-    renderer.printCentered('Товарищ', 320, 254, 15, 8, 8);
+    renderer.printCentered('Товарищ', 320, 251, 15, 14, 8);
     return;
   }
 
-  renderer.fillRect(274, 249, 92, 17, 0);
-  renderer.strokeRect(274, 249, 92, 17, 14, 1);
-  renderer.printCentered('ВАШ ХОД', 320, 254, 14, 8, 7);
+  renderer.fillRect(270, 248, 100, 20, 0);
+  renderer.strokeRect(270, 248, 100, 20, 14, 1);
+  renderer.printCentered('ВАШ ХОД', 320, 251, 14, 14, 8);
 }
 
 function drawThinkingBubble() {
@@ -375,9 +458,9 @@ function drawThinkingBubble() {
   };
   const box = boxes[game.currentSeat];
   if (!box) return;
-  renderer.fillRect(box.x, box.y, 93, 16, 7);
-  renderer.strokeRect(box.x, box.y, 93, 16, 1, 1);
-  renderer.print('Думаю...', box.x + 7, box.y + 4, 0, 6, 6);
+  renderer.fillRect(box.x, box.y, 93, 18, 7);
+  renderer.strokeRect(box.x, box.y, 93, 18, 1, 1);
+  renderer.print('Думаю...', box.x + 7, box.y + 4, 0, 8, 7);
 }
 
 function drawResultOverlay() {
@@ -392,8 +475,8 @@ function drawResultOverlay() {
   const names = ['Товарищ', ...game.characters.map(character => character.name)];
   for (let seat = 0; seat < 4; seat += 1) {
     const y = 130 + seat * 24;
-    renderer.print(names[seat], 180, y, seat === PLAYER_SEAT ? 14 : 15, 8, 8);
-    renderer.printCentered(formatScore(game.scores[seat]), 424, y, seat === PLAYER_SEAT ? 14 : 15, 8, 8);
+    renderer.print(names[seat], 180, y - 3, seat === PLAYER_SEAT ? 14 : 15, 14, 8);
+    renderer.printCentered(formatScore(game.scores[seat]), 424, y - 3, seat === PLAYER_SEAT ? 14 : 15, 14, 8);
   }
 
   if (game.status === 'game-over') renderer.printCentered('НАЧАТЬ ЗАНОВО — КНОПКА ВНИЗУ', 320, 231, 10, 6, 6);
@@ -449,6 +532,7 @@ function handlePartnerTap(x, y) {
 
   selectedPartnerIds.push(character.id);
   tg?.HapticFeedback?.selectionChanged?.();
+  playSelectionSound();
   renderPartnerPicker();
 
   if (selectedPartnerIds.length < 3) {
@@ -499,6 +583,7 @@ function handleCardTap(x, y) {
     render();
     setHint('Ваш ход. Карта выбрана — коснитесь её ещё раз, чтобы положить на стол.');
     tg?.HapticFeedback?.selectionChanged?.();
+    playSelectionSound();
     return;
   }
 
@@ -560,15 +645,12 @@ async function collectCompletedTrick(token) {
   game.status = 'trick-collecting';
   inputLocked = true;
   setHint('Собираем взятку…');
-
-  for (let step = 1; step <= TRICK_COLLECT_STEPS; step += 1) {
-    game.trickCollectionProgress = step / TRICK_COLLECT_STEPS;
-    render();
-    if (!await gameDelay(TRICK_COLLECT_STEP_MS, token)) return;
-  }
+  playTrickSound();
+  render();
+  if (!await holdForOnePaint(token)) return;
 
   game.trick = [];
-  game.trickCollectionProgress = 0;
+  game.trickWinnerSeat = null;
   render();
 
   if (game.trickNumber >= 8) {
@@ -587,6 +669,7 @@ async function playCard(seat, card, token) {
 
   inputLocked = true;
   game.trick.push({ seat, card: played });
+  playCardSound();
   setHint(`${game.playerNames[seat]} делает ход.`);
   render();
 
@@ -604,8 +687,8 @@ async function playCard(seat, card, token) {
   game.scores[winner.seat] += points;
   game.trickNumber += 1;
   game.currentSeat = winner.seat;
+  game.trickWinnerSeat = winner.seat;
   game.status = 'trick-await';
-  game.trickCollectionProgress = 0;
   inputLocked = false;
   setHint(`${game.playerNames[winner.seat]} берёт взятку${points === 0 ? '.' : `: ${formatScore(points)}.`} Нажмите в любую часть экрана.`);
   render();
@@ -636,7 +719,7 @@ function startContract(contractIndex) {
   game.contractIndex = contractIndex;
   game.hands = dealHands(shuffleDeck(createDeck(), game.random));
   game.trick = [];
-  game.trickCollectionProgress = 0;
+  game.trickWinnerSeat = null;
   game.trickNumber = 0;
   game.dealScores = [0, 0, 0, 0];
   game.currentSeat = (contractIndex + 1) % 4;
@@ -660,7 +743,7 @@ function startMatch() {
     dealScores: [0, 0, 0, 0],
     hands: [[], [], [], []],
     trick: [],
-    trickCollectionProgress: 0,
+    trickWinnerSeat: null,
     trickNumber: 0,
     currentSeat: 0,
     contractIndex: 0,
@@ -705,6 +788,7 @@ async function startApplication() {
 el.canvas.addEventListener('pointerdown', event => {
   if (!event.isPrimary) return;
   if (screen === 'loading') return;
+  prepareAudio();
   const point = logicalPoint(event);
   pointerStart = {
     pointerId: event.pointerId,
@@ -739,6 +823,7 @@ function updatePauseState() {
 
 document.addEventListener('visibilitychange', updatePauseState);
 document.addEventListener('pointerdown', event => {
+  prepareAudio();
   if (event.isPrimary !== false && isLandscapeViewport()) void requestLandscapeFullscreen(true);
 });
 document.addEventListener('pointerup', event => {
@@ -781,7 +866,13 @@ window.__kingDebug = {
         currentSeat: game.currentSeat,
         trickNumber: game.trickNumber,
         trick: game.trick.map(entry => ({ seat: entry.seat, cardId: entry.card.id })),
-        trickCollectionProgress: game.trickCollectionProgress,
+        trickWinnerSeat: game.trickWinnerSeat,
+        trickVisualPositions: trickDrawLayout().map(entry => ({
+          seat: entry.seat,
+          cardId: entry.card.id,
+          x: entry.x,
+          y: entry.y,
+        })),
         handCounts: game.hands.map(hand => hand.length),
         playerCards: game.hands[0].map(card => ({ id: card.id, x: playerCardLayout().find(item => item.card.id === card.id)?.x })),
         legalPlayerCardIds: game.status === 'playing'

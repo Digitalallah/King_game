@@ -1,6 +1,19 @@
 # Local DOS originals and extracted binary assets are intentionally excluded from PRs.
 original/
 assets/original/
+node_modules/
+.wrangler/
+
+# Local credentials and Cloudflare development secrets must never be committed.
+.env
+.env.*
+!.env.example
+.dev.vars
+.dev.vars.*
+*.pem
+*.key
+*.p12
+*.pfx
 
 # DOS game binary/source-asset files.
 *.png

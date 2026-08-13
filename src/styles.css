@@ -126,9 +126,19 @@ a {
   border: 1px solid #fff;
   background: rgba(0, 0, 0, 0.82);
   color: #ffff00;
-  font-size: 11px;
+  font-size: clamp(8px, 2.3vw, 11px);
   text-align: center;
   pointer-events: none;
+}
+
+@keyframes orientation-hint-life {
+  0%, 100% {
+    opacity: 0;
+  }
+
+  10%, 82% {
+    opacity: 1;
+  }
 }
 
 .loading-overlay {
@@ -181,6 +191,14 @@ a {
   height: 100%;
   background: #00c800;
   transition: width 180ms steps(4, end);
+}
+
+.loading-bar i.is-starting {
+  width: 28%;
+}
+
+.loading-bar i.is-complete {
+  width: 100%;
 }
 
 .game-controls {
@@ -272,8 +290,9 @@ a {
 }
 
 @media (orientation: portrait) and (max-width: 720px) {
-  .orientation-hint {
+  .orientation-hint.is-visible {
     display: block;
+    animation: orientation-hint-life 3.2s ease both;
   }
 }
 

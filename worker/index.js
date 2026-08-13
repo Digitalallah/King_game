@@ -1,4 +1,4 @@
-const BUILD_MARKER = 'single-player-original-1';
+const BUILD_MARKER = 'single-player-controls-2';
 
 // Keep the already-provisioned Durable Object namespace deployable without
 // exposing network play. No active route forwards requests to this class.

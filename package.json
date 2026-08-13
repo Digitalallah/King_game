@@ -5,6 +5,6 @@
   "scripts": {
     "start": "node server.mjs",
     "test": "node --test",
-    "check": "node --check src/original-config.js && node --check src/single-player.js && node --check server.mjs && node --check worker/index.js"
+    "check": "node --check src/original-config.js && node --check src/input-controller.js && node --check src/single-player.js && node --check server.mjs && node --check worker/index.js"
   }
 }

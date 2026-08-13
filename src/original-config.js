@@ -2,6 +2,7 @@ export const ORIGINAL_ARCHIVE_SHA256 = '64d0d5dae0a536626e944af58314b48a13682a49
 export const ORIGINAL_WIDTH = 640;
 export const ORIGINAL_HEIGHT = 350;
 export const ENTER_KEY = 257;
+export const ORIGINAL_CPU_CYCLES = 20000;
 
 export const DOSBOX_CONF = `[sdl]
 autolock=false
@@ -17,7 +18,7 @@ scaler=none
 [cpu]
 core=auto
 cputype=auto
-cycles=max
+cycles=${ORIGINAL_CPU_CYCLES}
 
 [mixer]
 nosound=true
@@ -66,6 +67,16 @@ export async function synchronizeOriginalPointer(client, settleMs = 90) {
     client.sendMouseMotion(0, 0);
     await delay(settleMs);
   }
+}
+
+export async function moveOriginalPointer(client, x, y, settleMs = 100) {
+  // KING recentres the DOS mouse after every accepted click. Relative motion
+  // places it deterministically without js-dos' absolute sync frames leaking
+  // into the original UI.
+  client.sendMouseRelativeMotion(-1000, 1000);
+  await delay(settleMs);
+  client.sendMouseRelativeMotion(x, -y);
+  await delay(settleMs);
 }
 
 export function mapBrowserKeyCode(keyCode) {

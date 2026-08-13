@@ -14,8 +14,9 @@ import {
   ORIGINAL_HEIGHT,
   ORIGINAL_WIDTH,
   passOriginalPrompts,
-  synchronizeOriginalPointer,
+  moveOriginalPointer,
 } from '../src/original-config.js';
+import { detectPlayerCardSlots } from '../src/input-controller.js';
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const archivePath = join(root, 'kingrus.zip');
@@ -65,9 +66,7 @@ test('the original game boots and starts a single-player deal at 640×350', { ti
     assert.equal(pickerVisible, true);
 
     const tap = async (x, y) => {
-      await synchronizeOriginalPointer(client);
-      client.sendMouseMotion(x / ORIGINAL_WIDTH, y / ORIGINAL_HEIGHT);
-      await new Promise(resolve => setTimeout(resolve, 55));
+      await moveOriginalPointer(client, x, y, 65);
       client.sendMouseButton(0, true);
       await new Promise(resolve => setTimeout(resolve, 45));
       client.sendMouseButton(0, false);
@@ -80,13 +79,29 @@ test('the original game boots and starts a single-player deal at 640×350', { ti
 
     const tableDeadline = Date.now() + 6000;
     let tableVisible = false;
+    let tableFrame = null;
     while (Date.now() < tableDeadline && !tableVisible) {
       const frame = await client.screenshot();
       tableVisible = isGameTableFrame(frame.data, frame.width, frame.height, 4);
+      if (tableVisible) tableFrame = frame;
       if (!tableVisible) await new Promise(resolve => setTimeout(resolve, 100));
     }
 
     assert.equal(tableVisible, true);
+    const initialCards = detectPlayerCardSlots(tableFrame.data, tableFrame.width, tableFrame.height, 4);
+    assert.equal(initialCards.length, 8);
+
+    // Try the visible cards until one is legal for the current trick. A real
+    // accepted click must remove it from the hand, proving that touch geometry
+    // reaches KING.EXE rather than only finding the table visually.
+    let remainingCards = initialCards.length;
+    for (const card of initialCards) {
+      await tap(card.clickX, card.clickY);
+      const afterPlay = await client.screenshot();
+      remainingCards = detectPlayerCardSlots(afterPlay.data, afterPlay.width, afterPlay.height, 4).length;
+      if (remainingCards < initialCards.length) break;
+    }
+    assert.equal(remainingCards, 7);
   } finally {
     await client.exit();
   }

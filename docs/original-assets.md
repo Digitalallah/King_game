@@ -1,19 +1,15 @@
-# Original DOS assets
+# Исходные файлы игры
 
-The repository must not include binary files from the original DOS game or PNG files extracted from them.
-
-Place any local, untracked copies under `assets/original/` when you need to run asset extraction or compare against the original game. This path is intentionally ignored by Git and should only be referenced from documentation or scripts.
-
-Expected local-only layout example:
+Активный прототип использует предоставленный архив `kingrus.zip` со следующей контрольной суммой SHA-256:
 
 ```text
-assets/original/
-  KING.EXE
-  KING.FNT
-  KING.LIB
-  KING2.EXE
-  extracted/
-    ... generated PNG files ...
+64d0d5dae0a536626e944af58314b48a13682a49221d01a518fb01c86e53f153
 ```
 
-Keep pull requests limited to text files such as source code, README/docs, and extraction scripts.
+Внутри находятся `KING.EXE`, `KING2.EXE`, `KING.LIB`, `KING.FNT`, справка и служебные файлы. Браузер загружает архив целиком и распаковывает его во временную файловую систему DOSBox; отдельные PNG-копии ресурсов не используются.
+
+Для локального исследования распакованные файлы можно положить в игнорируемый каталог `assets/original/`:
+
+```bash
+python3 scripts/extract_original_assets.py /path/to/kingrus
+```

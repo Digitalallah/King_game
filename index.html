@@ -3,96 +3,45 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-    <meta name="theme-color" content="#16213e" />
-    <meta name="telegram-bot-username" content="KingIgraBot" />
-    <meta name="telegram-app-name" content="King" />
-    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
-    <meta http-equiv="Pragma" content="no-cache" />
-    <meta http-equiv="Expires" content="0" />
-    <title>Кинг — Telegram Mini App</title>
-    <link rel="stylesheet" href="./src/styles.css?v=multiplayer-4" />
+    <meta name="theme-color" content="#000000" />
+    <title>Кинг</title>
+    <link rel="stylesheet" href="./src/styles.css?v=single-player-1" />
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
   </head>
   <body>
-    <div id="app" class="app-shell">
-      <header class="topbar">
-        <div>
-          <p class="eyebrow">Telegram Mini App</p>
-          <h1>Кинг</h1>
+    <main class="app-shell">
+      <section class="game-viewport" aria-label="Оригинальная игра Кинг">
+        <div id="gameStage" class="game-stage">
+          <canvas
+            id="gameCanvas"
+            width="640"
+            height="350"
+            tabindex="0"
+            aria-label="Игровое поле. Нажимайте на персонажей и карты."
+          ></canvas>
+
+          <div id="loadingOverlay" class="loading-overlay" role="status" aria-live="polite">
+            <div class="loading-window">
+              <strong>КИНГ</strong>
+              <span id="loadingText">Запускаем оригинальную игру…</span>
+              <span class="loading-bar" aria-hidden="true"><i id="loadingBar"></i></span>
+              <button id="retryButton" type="button" hidden>Повторить запуск</button>
+            </div>
+          </div>
         </div>
-        <div class="topbar-actions">
-          <button id="portraitButton" class="ghost-button" type="button">Портрет</button>
-          <button id="rulesButton" class="ghost-button" type="button">Правила</button>
+      </section>
+
+      <footer class="game-controls">
+        <p id="gameHint">После загрузки выберите трёх партнёров, затем игра начнётся автоматически.</p>
+        <div class="control-buttons">
+          <button id="restartButton" type="button">Начать заново</button>
+          <button id="zoomButton" type="button" aria-pressed="false">Масштаб 1:1</button>
+          <button id="fullscreenButton" type="button">На весь экран</button>
         </div>
-      </header>
+      </footer>
+    </main>
 
-      <main class="game-layout" aria-live="polite">
-        <section class="score-panel" aria-label="Счет и контракт">
-          <div class="contract-card">
-            <span class="label">Контракт</span>
-            <strong id="contractTitle">—</strong>
-            <p id="contractDescription">Сначала соберите состав партии.</p>
-          </div>
-          <div class="round-progress">
-            <span id="roundLabel">Раунд 1/14</span>
-            <div class="progress-track"><span id="roundProgress"></span></div>
-          </div>
-          <div id="scoreBoard" class="score-board"></div>
-        </section>
-
-        <section class="table" aria-label="Игровой стол">
-          <div id="players" class="players"></div>
-          <div id="trickArea" class="trick-area"></div>
-          <div id="statusText" class="status-text">Нажмите «Начать партию», чтобы собрать общую игру.</div>
-        </section>
-
-        <section class="hand-panel" aria-label="Ваши карты">
-          <div class="actions">
-            <button id="newGameButton" class="primary-button" type="button">Начать партию</button>
-            <button id="hintButton" class="secondary-button" type="button">Подсказка</button>
-          </div>
-          <div id="hand" class="hand"></div>
-        </section>
-      </main>
-
-      <dialog id="portraitDialog" class="portrait-dialog">
-        <form method="dialog">
-          <h2>Выберите портрет</h2>
-          <p>Портрет используется как локальное оформление, если у Telegram нет фотографии профиля.</p>
-          <div id="portraitGrid" class="portrait-grid" aria-label="Выбор портрета"></div>
-          <button class="primary-button" value="close">Готово</button>
-        </form>
-      </dialog>
-
-      <dialog id="networkDialog" class="network-dialog">
-        <form method="dialog">
-          <h2>Состав партии</h2>
-          <p>Первое место занимает хост. Остальные места по умолчанию играют компьютеры — можно сразу начинать или пригласить друзей на конкретные места.</p>
-          <div id="invitePreview" class="invite-preview"></div>
-          <div id="lobbyPlayers" class="lobby-players lobby-seats" aria-live="polite"></div>
-          <div class="dialog-actions">
-            <button id="startNetworkButton" class="primary-button" value="close">Начать игру</button>
-          </div>
-        </form>
-      </dialog>
-
-      <dialog id="rulesDialog" class="rules-dialog">
-        <form method="dialog">
-          <h2>Как играть</h2>
-          <p>Это общая сетевая партия: сервер раздаёт одну колоду всем участникам, проверяет ходы и считает очки. Свободные места занимают компьютеры.</p>
-          <ul>
-            <li>Ходите картой той же масти, если она есть.</li>
-            <li>Взятку забирает старшая карта масти первого хода.</li>
-            <li>Контракты: взятки, черви, мальчики, девочки, две последние взятки, Кинг и Ералаш.</li>
-            <li>В «червях», «Кинге» и «Ералаше» нельзя начинать с червей, пока есть другая масть.</li>
-            <li>После штрафной половины те же контракты играются на положительные очки.</li>
-          </ul>
-          <button class="primary-button" value="close">Понятно</button>
-        </form>
-      </dialog>
-    </div>
-    <script src="./src/launch-normalizer.js?v=1"></script>
-    <script src="./src/telegram-invite-fix.js?v=2"></script>
-    <script type="module" src="./src/game-v2.js?v=multiplayer-4"></script>
+    <script src="./vendor/emulators/emulators.js?v=8.4.1"></script>
+    <script type="module" src="./src/single-player.js?v=single-player-1"></script>
   </body>
 </html>

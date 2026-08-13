@@ -1,0 +1,12 @@
+.git
+.github
+.gitignore
+.assetsignore
+README.md
+docs
+package.json
+scripts
+server.mjs
+test
+worker
+wrangler.jsonc

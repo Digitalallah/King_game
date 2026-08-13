@@ -61,9 +61,14 @@ test('partner choice, player turn and completed trick are explicit', () => {
   assert.match(source, /'ОН ВСЕГДА'/);
   assert.match(source, /'МУХЛЮЕТ'/);
   assert.match(source, /'ВАШ ХОД'/);
+  assert.match(source, /'ОБЩИЙ СЧЁТ'/);
+  assert.match(source, /'ПОБЕДИТЕЛЬ'/);
+  assert.match(source, /'НИЧЬЯ'/);
   assert.match(source, /game\.status = 'trick-await'/);
   assert.match(source, /collectCompletedTrick/);
   assert.match(source, /holdForOnePaint/);
+  assert.match(source, /TRICK_COLLECT_HOLD_MS = 650/);
+  assert.match(source, /gameDelay\(TRICK_COLLECT_HOLD_MS, token\)/);
   assert.match(source, /TRICK_STACK_STEPS/);
   assert.doesNotMatch(source, /TRICK_COLLECT_STEPS|trickCollectionProgress/);
   assert.match(source, /document\.addEventListener\('pointerup'/);
@@ -104,7 +109,7 @@ test('health reports the native single-player build', async () => {
   assert.equal(response.status, 200);
   const health = await response.json();
   assert.equal(health.mode, 'single-player');
-  assert.equal(health.build, 'native-single-player-3');
+  assert.equal(health.build, 'native-single-player-5');
   assert.equal(response.headers.get('cache-control'), 'no-store');
   assert.equal(response.headers.get('x-content-type-options'), 'nosniff');
 });

@@ -248,6 +248,18 @@ export function updateCardTapSelection(selectedCardId, tappedCardId) {
   return { selectedCardId: tappedCardId, shouldPlay: false };
 }
 
+export function matchResult(scores) {
+  if (!Array.isArray(scores) || scores.length === 0 || scores.some(score => !Number.isFinite(score))) {
+    throw new Error('Для определения победителя нужны итоговые очки игроков');
+  }
+  const winningScore = Math.max(...scores);
+  const winnerSeats = scores
+    .map((score, seat) => ({ score, seat }))
+    .filter(entry => entry.score === winningScore)
+    .map(entry => entry.seat);
+  return { winningScore, winnerSeats };
+}
+
 export function formatScore(value) {
   if (value > 0) return `+${value}`;
   return String(value);

@@ -11,18 +11,19 @@ import {
   shuffleDeck,
   trickWinner,
   updateCardTapSelection,
-} from './game-engine.js?v=native-1';
+} from './game-engine.js?v=native-2';
 import {
   IndexedRenderer,
   loadKingAssets,
   SCREEN_HEIGHT,
   SCREEN_WIDTH,
-} from './native-assets.js?v=native-1';
+} from './native-assets.js?v=native-2';
 
 const tg = window.Telegram?.WebApp;
 
 const el = {
   canvas: document.querySelector('#gameCanvas'),
+  orientationHint: document.querySelector('#orientationHint'),
   loadingOverlay: document.querySelector('#loadingOverlay'),
   loadingText: document.querySelector('#loadingText'),
   loadingBar: document.querySelector('#loadingBar'),
@@ -44,8 +45,15 @@ const CARD_SELECTED_Y = 269;
 const TAP_MOVE_LIMIT_CSS = 28;
 const AI_THINK_MS = 950;
 const CARD_REVEAL_MS = 620;
-const TRICK_RESULT_MS = 1250;
+const TRICK_COLLECT_STEP_MS = 48;
+const TRICK_COLLECT_STEPS = 12;
 const CONTRACT_RESULT_MS = 2600;
+const ORIENTATION_HINT_MS = 3200;
+const PARTNER_DESCRIPTIONS = [
+  ['ОН ИГРАЕТ', 'НЕПЛОХО'],
+  ['ОНА ИГРАЕТ', 'ОТЛИЧНО'],
+  ['ОН ВСЕГДА', 'МУХЛЮЕТ'],
+];
 const requestedSpeed = Number(new URLSearchParams(location.search).get('speed'));
 const TIME_SCALE = Number.isFinite(requestedSpeed) && requestedSpeed > 0
   ? Math.max(0.01, Math.min(4, requestedSpeed))
@@ -60,25 +68,113 @@ let inputLocked = true;
 let pointerStart = null;
 let runToken = 0;
 let paused = false;
+let orientationHintTimer = null;
+let landscapeFullscreenRequested = false;
+const landscapeMedia = window.matchMedia?.('(orientation: landscape)') ?? null;
+const coarsePointerMedia = window.matchMedia?.('(pointer: coarse)') ?? null;
 
 function initTelegram() {
   if (!tg) return;
   tg.ready();
   tg.expand();
   tg.disableVerticalSwipes?.();
+  tg.unlockOrientation?.();
   tg.setHeaderColor?.('#000000');
   tg.setBackgroundColor?.('#001600');
+}
+
+function isLandscapeViewport() {
+  if (landscapeMedia) return landscapeMedia.matches;
+  return Number(window.innerWidth) > Number(window.innerHeight);
+}
+
+function isMobileDevice() {
+  if (tg?.platform === 'android' || tg?.platform === 'ios') return true;
+  return Boolean(coarsePointerMedia?.matches || Number(navigator.maxTouchPoints) > 0);
+}
+
+function hideOrientationHint() {
+  if (orientationHintTimer !== null) clearTimeout(orientationHintTimer);
+  orientationHintTimer = null;
+  el.orientationHint.classList.remove('is-visible');
+  el.orientationHint.setAttribute('aria-hidden', 'true');
+}
+
+function showOrientationHintTemporarily() {
+  hideOrientationHint();
+  if (isLandscapeViewport()) return;
+  el.orientationHint.classList.add('is-visible');
+  el.orientationHint.setAttribute('aria-hidden', 'false');
+  orientationHintTimer = setTimeout(hideOrientationHint, ORIENTATION_HINT_MS);
+}
+
+async function requestLandscapeFullscreen(fromUserGesture = false) {
+  if (!isLandscapeViewport() || !isMobileDevice()) return;
+
+  tg?.expand?.();
+  const telegramCanFullscreen = Boolean(
+    tg?.requestFullscreen
+    && (!tg.isVersionAtLeast || tg.isVersionAtLeast('8.0')),
+  );
+
+  if (telegramCanFullscreen && !tg.isFullscreen && !landscapeFullscreenRequested) {
+    landscapeFullscreenRequested = true;
+    try {
+      tg.requestFullscreen();
+    } catch {
+      landscapeFullscreenRequested = false;
+    }
+  }
+
+  if (telegramCanFullscreen) return;
+
+  if (!fromUserGesture || document.fullscreenElement) return;
+  const target = document.documentElement;
+  if (typeof target?.requestFullscreen !== 'function') return;
+  try {
+    await target.requestFullscreen({ navigationUI: 'hide' });
+  } catch {
+    // A regular browser may reject fullscreen even after rotation. The next tap retries it.
+  }
+}
+
+function handleOrientationChange() {
+  if (isLandscapeViewport()) {
+    hideOrientationHint();
+    void requestLandscapeFullscreen();
+    return;
+  }
+
+  landscapeFullscreenRequested = false;
+  showOrientationHintTemporarily();
+}
+
+function initOrientationHandling() {
+  landscapeMedia?.addEventListener?.('change', handleOrientationChange);
+  window.addEventListener?.('orientationchange', handleOrientationChange);
+  tg?.onEvent?.('fullscreenChanged', () => {
+    landscapeFullscreenRequested = Boolean(tg.isFullscreen);
+  });
+  tg?.onEvent?.('fullscreenFailed', () => {
+    landscapeFullscreenRequested = false;
+  });
+  handleOrientationChange();
 }
 
 function setHint(text) {
   el.hint.textContent = text;
 }
 
+function setLoadingBarState(state) {
+  el.loadingBar.classList.remove('is-starting', 'is-complete');
+  if (state) el.loadingBar.classList.add(state);
+}
+
 function showLoading() {
   screen = 'loading';
   inputLocked = true;
   el.loadingText.textContent = 'Загрузка';
-  el.loadingBar.style.width = '28%';
+  setLoadingBarState('is-starting');
   el.loadingOverlay.hidden = false;
   el.retryButton.hidden = true;
   setHint('Загрузка');
@@ -87,7 +183,7 @@ function showLoading() {
 function showLoadError(error) {
   console.error(error);
   el.loadingText.textContent = 'Загрузка';
-  el.loadingBar.style.width = '100%';
+  setLoadingBarState('is-complete');
   el.retryButton.hidden = false;
   setHint('Не удалось загрузить игру. Нажмите «Повторить запуск».');
 }
@@ -127,6 +223,21 @@ function printCenteredShadowed(text, centerX, y, color = 15, glyphHeight = 8, sp
   renderer.print(text, x, y, color, glyphHeight, spacing);
 }
 
+function drawSelectedPartner(character, order) {
+  const column = character.id % 4;
+  const row = Math.floor(character.id / 4);
+  const x = 160 + column * 80;
+  const y = 15 + row * 104;
+  const description = PARTNER_DESCRIPTIONS[row];
+
+  renderer.fillRect(x, y, 80, 96, 2);
+  printCenteredShadowed(character.name, x + 40, y + 6, 14, 8, 6);
+  printCenteredShadowed(`${order + 1}-й`, x + 40, y + 23, 14, 8, 6);
+  printCenteredShadowed('ПАРТНЕР', x + 40, y + 38, 14, 8, 6);
+  printCenteredShadowed(description[0], x + 40, y + 56, 14, 6, 6);
+  printCenteredShadowed(description[1], x + 40, y + 70, 14, 6, 6);
+}
+
 function renderPartnerPicker() {
   renderer.clear(2);
   drawSelectionBorder();
@@ -137,11 +248,15 @@ function renderPartnerPicker() {
   for (const character of CHARACTERS) {
     const column = character.id % 4;
     const row = Math.floor(character.id / 4);
-    printCenteredShadowed(character.name, 200 + column * 80, 101 + row * 104, 15, 8, 7);
+    const selectedOrder = selectedPartnerIds.indexOf(character.id);
+    if (selectedOrder >= 0) drawSelectedPartner(character, selectedOrder);
+    else printCenteredShadowed(character.name, 200 + column * 80, 101 + row * 104, 15, 8, 7);
   }
 
-  const next = Math.min(3, selectedPartnerIds.length + 1);
-  renderer.printCentered(`Выберите ${next}-го партнера...`, 320, 340, 14, 8, 7);
+  const prompt = selectedPartnerIds.length >= 3
+    ? 'Партнёры выбраны...'
+    : `Выберите ${selectedPartnerIds.length + 1}-го партнера...`;
+  renderer.printCentered(prompt, 320, 340, 14, 8, 7);
   renderer.present();
 }
 
@@ -224,10 +339,31 @@ function drawTrick() {
     { x: 293, y: 120 },
     { x: 369, y: 150 },
   ];
+  const rawProgress = game.status === 'trick-collecting'
+    ? Math.max(0, Math.min(1, game.trickCollectionProgress ?? 0))
+    : 0;
+  const progress = rawProgress * rawProgress * (3 - 2 * rawProgress);
+  const center = { x: 294, y: 151 };
   for (const entry of game.trick) {
     const position = positions[entry.seat];
-    renderer.drawSprite(entry.card.spriteId, position.x, position.y);
+    const x = Math.round(position.x + (center.x - position.x) * progress);
+    const y = Math.round(position.y + (center.y - position.y) * progress);
+    renderer.drawSprite(entry.card.spriteId, x, y);
   }
+}
+
+function drawPlayerSeatLabel() {
+  const isPlayerTurn = game.status === 'playing'
+    && game.currentSeat === PLAYER_SEAT
+    && !inputLocked;
+  if (!isPlayerTurn) {
+    renderer.printCentered('Товарищ', 320, 254, 15, 8, 8);
+    return;
+  }
+
+  renderer.fillRect(274, 249, 92, 17, 0);
+  renderer.strokeRect(274, 249, 92, 17, 14, 1);
+  renderer.printCentered('ВАШ ХОД', 320, 254, 14, 8, 7);
 }
 
 function drawThinkingBubble() {
@@ -271,7 +407,7 @@ function renderGameTable() {
   drawTableSurface();
   drawContractPanel();
   drawScoreBox();
-  renderer.printCentered('Товарищ', 320, 254, 15, 8, 8);
+  drawPlayerSeatLabel();
   drawTrick();
   drawPlayerHand();
   drawThinkingBubble();
@@ -338,7 +474,7 @@ function cardAtPoint(x, y) {
 }
 
 function playerHelpText() {
-  return 'Один тап выбирает карту, второй тап по ней кладёт её на стол.';
+  return 'Ваш ход. Один тап выбирает карту, второй тап по ней кладёт её на стол.';
 }
 
 function handleCardTap(x, y) {
@@ -361,7 +497,7 @@ function handleCardTap(x, y) {
 
   if (!selection.shouldPlay) {
     render();
-    setHint('Карта выбрана. Коснитесь её ещё раз, чтобы положить на стол.');
+    setHint('Ваш ход. Карта выбрана — коснитесь её ещё раз, чтобы положить на стол.');
     tg?.HapticFeedback?.selectionChanged?.();
     return;
   }
@@ -383,7 +519,9 @@ function handleCardTap(x, y) {
 
 function handleCanvasTap(x, y) {
   if (screen === 'partners' && !inputLocked) handlePartnerTap(x, y);
-  else if (screen === 'table') handleCardTap(x, y);
+  else if (screen === 'table' && game?.status === 'trick-await' && !inputLocked) {
+    void collectCompletedTrick(runToken);
+  } else if (screen === 'table') handleCardTap(x, y);
 }
 
 function removeCard(hand, cardId) {
@@ -417,6 +555,31 @@ async function continueCurrentTurn(token, extraDelay = 0) {
   await playCard(game.currentSeat, card, token);
 }
 
+async function collectCompletedTrick(token) {
+  if (token !== runToken || game.status !== 'trick-await') return;
+  game.status = 'trick-collecting';
+  inputLocked = true;
+  setHint('Собираем взятку…');
+
+  for (let step = 1; step <= TRICK_COLLECT_STEPS; step += 1) {
+    game.trickCollectionProgress = step / TRICK_COLLECT_STEPS;
+    render();
+    if (!await gameDelay(TRICK_COLLECT_STEP_MS, token)) return;
+  }
+
+  game.trick = [];
+  game.trickCollectionProgress = 0;
+  render();
+
+  if (game.trickNumber >= 8) {
+    await finishContract(token);
+    return;
+  }
+
+  game.status = 'playing';
+  await continueCurrentTurn(token, 260);
+}
+
 async function playCard(seat, card, token) {
   if (token !== runToken || game.status !== 'playing' || game.currentSeat !== seat) return;
   const played = removeCard(game.hands[seat], card.id);
@@ -441,18 +604,12 @@ async function playCard(seat, card, token) {
   game.scores[winner.seat] += points;
   game.trickNumber += 1;
   game.currentSeat = winner.seat;
-  setHint(`${game.playerNames[winner.seat]} берёт взятку${points === 0 ? '.' : `: ${formatScore(points)}$.`}`);
+  game.status = 'trick-await';
+  game.trickCollectionProgress = 0;
+  inputLocked = false;
+  setHint(`${game.playerNames[winner.seat]} берёт взятку${points === 0 ? '.' : `: ${formatScore(points)}.`} Нажмите в любую часть экрана.`);
   render();
-
-  if (!await gameDelay(TRICK_RESULT_MS, token)) return;
-  game.trick = [];
-
-  if (game.trickNumber >= 8) {
-    await finishContract(token);
-    return;
-  }
-
-  await continueCurrentTurn(token, 180);
+  tg?.HapticFeedback?.notificationOccurred?.('success');
 }
 
 async function finishContract(token) {
@@ -479,6 +636,7 @@ function startContract(contractIndex) {
   game.contractIndex = contractIndex;
   game.hands = dealHands(shuffleDeck(createDeck(), game.random));
   game.trick = [];
+  game.trickCollectionProgress = 0;
   game.trickNumber = 0;
   game.dealScores = [0, 0, 0, 0];
   game.currentSeat = (contractIndex + 1) % 4;
@@ -502,6 +660,7 @@ function startMatch() {
     dealScores: [0, 0, 0, 0],
     hands: [[], [], [], []],
     trick: [],
+    trickCollectionProgress: 0,
     trickNumber: 0,
     currentSeat: 0,
     contractIndex: 0,
@@ -532,7 +691,7 @@ async function startApplication() {
     const assets = await loadKingAssets();
     if (token !== runToken) return;
     renderer = new IndexedRenderer(el.canvas, assets);
-    el.loadingBar.style.width = '100%';
+    setLoadingBarState('is-complete');
     await delay(180 * TIME_SCALE);
     if (token !== runToken) return;
     el.loadingOverlay.hidden = true;
@@ -544,7 +703,8 @@ async function startApplication() {
 }
 
 el.canvas.addEventListener('pointerdown', event => {
-  if (!event.isPrimary || screen === 'loading') return;
+  if (!event.isPrimary) return;
+  if (screen === 'loading') return;
   const point = logicalPoint(event);
   pointerStart = {
     pointerId: event.pointerId,
@@ -578,6 +738,14 @@ function updatePauseState() {
 }
 
 document.addEventListener('visibilitychange', updatePauseState);
+document.addEventListener('pointerdown', event => {
+  if (event.isPrimary !== false && isLandscapeViewport()) void requestLandscapeFullscreen(true);
+});
+document.addEventListener('pointerup', event => {
+  if (screen !== 'table' || game?.status !== 'trick-await' || inputLocked) return;
+  if (event.target?.closest?.('button, a, dialog')) return;
+  void collectCompletedTrick(runToken);
+});
 
 function openInfoDialog(dialog) {
   dialog.showModal();
@@ -613,6 +781,7 @@ window.__kingDebug = {
         currentSeat: game.currentSeat,
         trickNumber: game.trickNumber,
         trick: game.trick.map(entry => ({ seat: entry.seat, cardId: entry.card.id })),
+        trickCollectionProgress: game.trickCollectionProgress,
         handCounts: game.hands.map(hand => hand.length),
         playerCards: game.hands[0].map(card => ({ id: card.id, x: playerCardLayout().find(item => item.card.id === card.id)?.x })),
         legalPlayerCardIds: game.status === 'playing'
@@ -625,4 +794,5 @@ window.__kingDebug = {
 };
 
 initTelegram();
+initOrientationHandling();
 startApplication();

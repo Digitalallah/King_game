@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="#000000" />
     <title>Кинг</title>
-    <link rel="stylesheet" href="./src/styles.css?v=native-1" />
+    <link rel="stylesheet" href="./src/styles.css?v=native-2" />
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
   </head>
   <body>
@@ -20,7 +20,7 @@
             aria-label="Игровое поле. Нажимайте на персонажей и карты."
           ></canvas>
 
-          <p id="orientationHint" class="orientation-hint">Поверните телефон горизонтально — так карты будут крупнее.</p>
+          <p id="orientationHint" class="orientation-hint" aria-hidden="true">Поверните телефон горизонтально — так карты будут крупнее.</p>
 
           <div id="loadingOverlay" class="loading-overlay" role="status" aria-live="polite">
             <div class="loading-window">
@@ -83,6 +83,6 @@
       </article>
     </dialog>
 
-    <script type="module" src="./src/native-game.js?v=native-1"></script>
+    <script type="module" src="./src/native-game.js?v=native-2"></script>
   </body>
 </html>

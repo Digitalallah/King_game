@@ -42,14 +42,48 @@ test('native pointer input uses CSS-space jitter tolerance and has no moving han
   assert.doesNotMatch(css, /cursor:\s*url/);
 });
 
+test('portrait hint is temporary and landscape requests mobile fullscreen', () => {
+  const source = readFileSync(new URL('../src/native-game.js', import.meta.url), 'utf8');
+  const css = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8');
+  assert.match(source, /ORIENTATION_HINT_MS = 3200/);
+  assert.match(source, /setTimeout\(hideOrientationHint, ORIENTATION_HINT_MS\)/);
+  assert.match(source, /tg\.requestFullscreen\(\)/);
+  assert.match(source, /requestLandscapeFullscreen\(true\)/);
+  assert.match(css, /\.orientation-hint\.is-visible/);
+  assert.doesNotMatch(css, /@media[^}]+portrait[^}]+\.orientation-hint\s*\{\s*display:\s*block/s);
+});
+
+test('partner choice, player turn and completed trick are explicit', () => {
+  const source = readFileSync(new URL('../src/native-game.js', import.meta.url), 'utf8');
+  assert.match(source, /'ПАРТНЕР'/);
+  assert.match(source, /\['ОН ИГРАЕТ', 'НЕПЛОХО'\]/);
+  assert.match(source, /\['ОНА ИГРАЕТ', 'ОТЛИЧНО'\]/);
+  assert.match(source, /'ОН ВСЕГДА'/);
+  assert.match(source, /'МУХЛЮЕТ'/);
+  assert.match(source, /'ВАШ ХОД'/);
+  assert.match(source, /game\.status = 'trick-await'/);
+  assert.match(source, /collectCompletedTrick/);
+  assert.match(source, /document\.addEventListener\('pointerup'/);
+});
+
 test('Cloudflare assets exclude emulator files and repository internals', () => {
   const ignored = readFileSync(new URL('../.assetsignore', import.meta.url), 'utf8').split(/\r?\n/);
+  const wrangler = readFileSync(new URL('../wrangler.jsonc', import.meta.url), 'utf8');
   assert.ok(ignored.includes('.git'));
+  assert.ok(ignored.includes('.env'));
+  assert.ok(ignored.includes('.env.*'));
+  assert.ok(ignored.includes('.dev.vars'));
+  assert.ok(ignored.includes('.wrangler'));
+  assert.ok(ignored.includes('node_modules'));
+  assert.ok(ignored.includes('*.pem'));
+  assert.ok(ignored.includes('*.key'));
   assert.ok(ignored.includes('worker'));
   assert.ok(ignored.includes('test'));
   assert.ok(ignored.includes('vendor'));
   assert.ok(ignored.includes('kingrus.zip'));
   assert.ok(!ignored.includes('assets'));
+  assert.match(wrangler, /"run_worker_first": true/);
+  assert.match(wrangler, /"not_found_handling": "none"/);
 });
 
 test('health reports the native single-player build', async () => {
@@ -57,7 +91,46 @@ test('health reports the native single-player build', async () => {
   assert.equal(response.status, 200);
   const health = await response.json();
   assert.equal(health.mode, 'single-player');
-  assert.equal(health.build, 'native-single-player-1');
+  assert.equal(health.build, 'native-single-player-2');
+  assert.equal(response.headers.get('cache-control'), 'no-store');
+  assert.equal(response.headers.get('x-content-type-options'), 'nosniff');
+});
+
+test('worker adds browser hardening headers without blocking Telegram fullscreen', async () => {
+  const source = readFileSync(new URL('../src/native-game.js', import.meta.url), 'utf8');
+  const assets = {
+    async fetch() {
+      return new Response('<!doctype html><title>Кинг</title>', {
+        headers: { 'Content-Type': 'text/html; charset=UTF-8' },
+      });
+    },
+  };
+  const response = await worker.fetch(new Request('https://example.com/'), { ASSETS: assets });
+  const csp = response.headers.get('content-security-policy');
+  assert.match(csp, /default-src 'self'/);
+  assert.match(csp, /script-src 'self' https:\/\/telegram\.org/);
+  assert.match(csp, /object-src 'none'/);
+  assert.match(csp, /frame-ancestors 'self' https:\/\/telegram\.org https:\/\/\*\.telegram\.org/);
+  assert.match(response.headers.get('permissions-policy'), /fullscreen=\(self\)/);
+  assert.equal(response.headers.get('referrer-policy'), 'no-referrer');
+  assert.equal(response.headers.get('strict-transport-security'), 'max-age=31536000');
+  assert.doesNotMatch(source, /\.style\./);
+});
+
+test('worker never serves repository and deployment internals through SPA fallback', async () => {
+  let assetRequests = 0;
+  const assets = {
+    async fetch() {
+      assetRequests += 1;
+      return new Response('fallback');
+    },
+  };
+
+  for (const pathname of ['/.git/config', '/wrangler.jsonc', '/kingrus.zip', '/vendor/emulators/emulators.js']) {
+    const response = await worker.fetch(new Request(`https://example.com${pathname}`), { ASSETS: assets });
+    assert.equal(response.status, 404, pathname);
+  }
+  assert.equal(assetRequests, 0);
 });
 
 test('network room API is disabled', async () => {

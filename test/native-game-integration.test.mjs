@@ -20,6 +20,13 @@ class MockElement {
     this.style = {};
     this.href = 'https://t.me/oodalenka';
     this.listeners = new Map();
+    this.attributes = new Map();
+    this.classes = new Set();
+    this.classList = {
+      add: (...names) => names.forEach(name => this.classes.add(name)),
+      remove: (...names) => names.forEach(name => this.classes.delete(name)),
+      contains: name => this.classes.has(name),
+    };
   }
 
   addEventListener(type, listener) {
@@ -34,6 +41,10 @@ class MockElement {
 
   showModal() {
     this.open = true;
+  }
+
+  setAttribute(name, value) {
+    this.attributes.set(name, String(value));
   }
 
   focus() {}
@@ -56,7 +67,7 @@ async function captureFrame(context, name) {
   await writeFile(`${directory}/${name}.rgba`, context.lastFrame.data);
 }
 
-test('native UI handles mobile taps and completes all fourteen contracts', { timeout: 15_000 }, async () => {
+test('native UI handles mobile taps and completes all fourteen contracts', { timeout: 25_000 }, async () => {
   const context = {
     imageSmoothingEnabled: false,
     lastFrame: null,
@@ -89,6 +100,7 @@ test('native UI handles mobile taps and completes all fourteen contracts', { tim
 
   const selectorIds = {
     '#gameCanvas': 'gameCanvas',
+    '#orientationHint': 'orientationHint',
     '#loadingOverlay': 'loadingOverlay',
     '#loadingText': 'loadingText',
     '#loadingBar': 'loadingBar',
@@ -103,11 +115,50 @@ test('native UI handles mobile taps and completes all fourteen contracts', { tim
   };
 
   const documentListeners = new Map();
+  const orientationListeners = [];
+  const landscapeQuery = {
+    matches: false,
+    addEventListener(type, listener) {
+      if (type === 'change') orientationListeners.push(listener);
+    },
+  };
+  let fullscreenRequests = 0;
   globalThis.ImageData = MockImageData;
   globalThis.location = { search: '?seed=50057&speed=0.01' };
-  globalThis.window = { location: globalThis.location };
+  Object.defineProperty(globalThis, 'navigator', {
+    configurable: true,
+    value: { maxTouchPoints: 1 },
+  });
+  globalThis.window = {
+    location: globalThis.location,
+    innerWidth: 360,
+    innerHeight: 640,
+    matchMedia(query) {
+      if (query === '(orientation: landscape)') return landscapeQuery;
+      if (query === '(pointer: coarse)') return { matches: true };
+      return { matches: false };
+    },
+    addEventListener() {},
+    Telegram: {
+      WebApp: {
+        platform: 'android',
+        isFullscreen: false,
+        ready() {},
+        expand() {},
+        disableVerticalSwipes() {},
+        unlockOrientation() {},
+        setHeaderColor() {},
+        setBackgroundColor() {},
+        isVersionAtLeast() { return true; },
+        requestFullscreen() { fullscreenRequests += 1; },
+        onEvent() {},
+      },
+    },
+  };
   globalThis.document = {
     hidden: false,
+    fullscreenElement: null,
+    documentElement: {},
     querySelector(selector) {
       return element(selectorIds[selector]);
     },
@@ -122,12 +173,21 @@ test('native UI handles mobile taps and completes all fourteen contracts', { tim
   };
 
   await import(`../src/native-game.js?integration=${Date.now()}`);
+  assert.equal(element('orientationHint').classList.contains('is-visible'), true);
+  landscapeQuery.matches = true;
+  window.innerWidth = 640;
+  window.innerHeight = 360;
+  for (const listener of orientationListeners) listener({ matches: true });
+  assert.equal(element('orientationHint').classList.contains('is-visible'), false);
+  assert.equal(fullscreenRequests, 1);
+
   const debug = await eventually(() => window.__kingDebug);
   await eventually(() => debug.snapshot().screen === 'partners');
   assert.ok(context.lastFrame, 'the partner picker rendered a canvas frame');
   await captureFrame(context, 'partners');
 
   pointerTap(200, 60, 18, 0);
+  await captureFrame(context, 'partner-selected');
   pointerTap(280, 60);
   pointerTap(360, 60);
   await eventually(() => debug.snapshot().screen === 'table');
@@ -139,6 +199,7 @@ test('native UI handles mobile taps and completes all fourteen contracts', { tim
       ? snapshot
       : null;
   });
+  assert.match(element('gameHint').textContent, /^Ваш ход\./);
   await captureFrame(context, 'table-player-turn');
   const legalId = playerTurn.game.legalPlayerCardIds[0];
   const card = playerTurn.game.playerCards.find(candidate => candidate.id === legalId);
@@ -151,11 +212,28 @@ test('native UI handles mobile taps and completes all fourteen contracts', { tim
   assert.equal(debug.snapshot().game.handCounts[0], 7);
   assert.equal(debug.snapshot().selectedCardId, null);
 
-  const gameDeadline = Date.now() + 12_000;
+  const waitingTrick = await eventually(() => {
+    const snapshot = debug.snapshot();
+    return snapshot.game?.status === 'trick-await' ? snapshot : null;
+  });
+  assert.equal(waitingTrick.game.trick.length, 4);
+  await captureFrame(context, 'trick-await');
+  await new Promise(resolve => setTimeout(resolve, 30));
+  assert.equal(debug.snapshot().game.status, 'trick-await');
+  assert.equal(debug.snapshot().game.trick.length, 4);
+  documentListeners.get('pointerup')?.({ target: element('gameHint') });
+  assert.equal(debug.snapshot().game.status, 'trick-collecting');
+  assert.equal(debug.snapshot().game.trick.length, 4);
+  assert.ok(debug.snapshot().game.trickCollectionProgress > 0);
+  await captureFrame(context, 'trick-collecting');
+
+  const gameDeadline = Date.now() + 20_000;
   while (Date.now() < gameDeadline) {
     const snapshot = debug.snapshot();
     if (snapshot.game?.status === 'game-over') break;
-    if (snapshot.game?.status === 'playing' && snapshot.game.currentSeat === 0 && !snapshot.inputLocked) {
+    if (snapshot.game?.status === 'trick-await' && !snapshot.inputLocked) {
+      pointerTap(20, 20);
+    } else if (snapshot.game?.status === 'playing' && snapshot.game.currentSeat === 0 && !snapshot.inputLocked) {
       const nextLegalId = snapshot.game.legalPlayerCardIds[0];
       const nextCard = snapshot.game.playerCards.find(candidate => candidate.id === nextLegalId);
       assert.ok(nextCard, `legal card ${nextLegalId} must have a visible position`);

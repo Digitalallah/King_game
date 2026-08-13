@@ -2,6 +2,16 @@
 .github
 .gitignore
 .assetsignore
+.env
+.env.*
+.dev.vars
+.dev.vars.*
+.wrangler
+node_modules
+*.pem
+*.key
+*.p12
+*.pfx
 README.md
 docs
 package.json

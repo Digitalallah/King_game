@@ -11,26 +11,28 @@
 
 html,
 body {
+  width: 100%;
   min-height: 100%;
   margin: 0;
+  overflow: hidden;
   background:
     radial-gradient(circle at 50% 0, #063b08 0, #001600 55%, #000 100%);
 }
 
 body {
   min-height: 100svh;
-  overflow: hidden;
+  min-height: 100dvh;
   overscroll-behavior: none;
 }
 
 button {
-  min-height: 38px;
-  padding: 7px 12px;
+  min-height: 36px;
+  padding: 6px 11px;
   border: 2px solid #e8e8e8;
   border-radius: 0;
   background: #008f08;
   color: #fff;
-  font: 700 14px/1.1 inherit;
+  font: 700 13px/1.1 inherit;
   box-shadow: 3px 3px 0 #000;
   cursor: pointer;
 }
@@ -41,22 +43,28 @@ button:active {
 }
 
 button:focus-visible,
-canvas:focus-visible {
+canvas:focus-visible,
+a:focus-visible {
   outline: 3px solid #ffff00;
   outline-offset: 2px;
+}
+
+a {
+  color: #57ff57;
 }
 
 .app-shell {
   display: grid;
   grid-template-rows: minmax(0, 1fr) auto;
-  gap: 10px;
+  gap: 6px;
   width: 100%;
   height: 100svh;
+  height: 100dvh;
   padding:
-    max(8px, env(safe-area-inset-top), var(--tg-content-safe-area-inset-top, 0px))
-    max(8px, env(safe-area-inset-right), var(--tg-content-safe-area-inset-right, 0px))
-    max(8px, env(safe-area-inset-bottom), var(--tg-content-safe-area-inset-bottom, 0px))
-    max(8px, env(safe-area-inset-left), var(--tg-content-safe-area-inset-left, 0px));
+    max(6px, env(safe-area-inset-top), var(--tg-content-safe-area-inset-top, 0px))
+    max(6px, env(safe-area-inset-right), var(--tg-content-safe-area-inset-right, 0px))
+    max(6px, env(safe-area-inset-bottom), var(--tg-content-safe-area-inset-bottom, 0px))
+    max(6px, env(safe-area-inset-left), var(--tg-content-safe-area-inset-left, 0px));
 }
 
 .game-viewport {
@@ -64,40 +72,73 @@ canvas:focus-visible {
   min-width: 0;
   min-height: 0;
   place-items: center;
-  overflow: auto;
-  scrollbar-color: #00aa00 #000;
+  overflow: hidden;
 }
 
 .game-stage {
   position: relative;
-  width: min(100%, calc((100svh - 92px) * 640 / 350));
-  flex: 0 0 auto;
+  width: 100%;
+  max-width: 100%;
   aspect-ratio: 640 / 350;
   overflow: hidden;
   border: 2px solid #000;
   background: #000;
-  box-shadow: 6px 6px 0 rgba(0, 0, 0, 0.72);
+  box-shadow: 5px 5px 0 rgba(0, 0, 0, 0.72);
 }
 
-.game-stage.native-scale {
-  width: 640px;
-  max-width: none;
+@supports (height: min(100%, 10px)) {
+  .game-stage {
+    width: auto;
+    height: min(100%, 54.6875vw);
+  }
 }
 
-#gameCanvas {
+#gameCanvas,
+#inputOverlay {
+  position: absolute;
+  inset: 0;
   display: block;
   width: 100%;
   height: 100%;
-  background: #000;
-  cursor: default;
   image-rendering: pixelated;
   image-rendering: crisp-edges;
+}
+
+#gameCanvas {
+  background: #000;
+  cursor: default;
   touch-action: none;
   user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+
+#inputOverlay {
+  pointer-events: none;
+}
+
+.orientation-hint {
+  display: none;
+  position: absolute;
+  z-index: 3;
+  top: 8px;
+  left: 50%;
+  width: max-content;
+  max-width: calc(100% - 20px);
+  margin: 0;
+  padding: 5px 8px;
+  translate: -50% 0;
+  border: 1px solid #fff;
+  background: rgba(0, 0, 0, 0.82);
+  color: #ffff00;
+  font-size: 11px;
+  text-align: center;
+  pointer-events: none;
 }
 
 .loading-overlay {
   position: absolute;
+  z-index: 4;
   inset: 0;
   display: grid;
   place-items: center;
@@ -151,53 +192,105 @@ canvas:focus-visible {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
+  gap: 8px;
   width: min(980px, 100%);
   margin: 0 auto;
-  padding: 7px 9px;
+  padding: 5px 7px;
   border: 2px solid #bdbdbd;
   background: #111;
-  box-shadow: 4px 4px 0 #000;
+  box-shadow: 3px 3px 0 #000;
 }
 
 .game-controls p {
   min-width: 0;
   margin: 0;
   color: #f1f1f1;
-  font-size: 13px;
-  line-height: 1.25;
+  font-size: 12px;
+  line-height: 1.2;
 }
 
 .control-buttons {
   display: flex;
   flex: 0 0 auto;
-  gap: 8px;
+  gap: 7px;
 }
 
-.game-stage:fullscreen {
-  display: grid;
-  width: 100vw;
-  height: 100vh;
-  place-items: center;
-  border: 0;
-  background: #000;
+.info-dialog {
+  width: min(680px, calc(100vw - 24px));
+  max-height: min(88dvh, 720px);
+  padding: 0;
+  overflow: auto;
+  border: 3px double #fff;
+  border-radius: 0;
+  background: #101010;
+  color: #f4f4f4;
+  box-shadow: 9px 9px 0 rgba(0, 0, 0, 0.72);
 }
 
-.game-stage:fullscreen #gameCanvas {
-  width: min(100vw, calc(100vh * 640 / 350));
-  height: auto;
-  aspect-ratio: 640 / 350;
+.info-dialog::backdrop {
+  background: rgba(0, 16, 0, 0.82);
+}
+
+.info-dialog article {
+  padding: 14px 16px 16px;
+}
+
+.info-dialog header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  border-bottom: 2px solid #008f08;
+}
+
+.info-dialog h2 {
+  margin: 0 0 10px;
+  color: #ffff00;
+}
+
+.info-dialog h3 {
+  margin-bottom: 6px;
+  color: #57ff57;
+}
+
+.info-dialog p,
+.info-dialog li {
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.info-dialog li + li {
+  margin-top: 4px;
+}
+
+.info-dialog header form button {
+  min-width: 34px;
+  min-height: 32px;
+  padding: 1px 8px;
+  font-size: 22px;
+}
+
+.dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 14px;
+}
+
+@media (orientation: portrait) and (max-width: 720px) {
+  .orientation-hint {
+    display: block;
+  }
 }
 
 @media (max-width: 720px) {
   .app-shell {
-    gap: 7px;
-    padding-inline: max(5px, env(safe-area-inset-right));
+    gap: 5px;
+    padding: max(4px, env(safe-area-inset-top)) max(4px, env(safe-area-inset-right)) max(4px, env(safe-area-inset-bottom)) max(4px, env(safe-area-inset-left));
   }
 
   .game-controls {
     display: grid;
-    gap: 7px;
+    gap: 5px;
   }
 
   .game-controls p {
@@ -210,38 +303,58 @@ canvas:focus-visible {
   }
 
   .control-buttons button {
-    min-height: 34px;
-    padding: 5px 6px;
+    min-height: 32px;
+    padding: 4px 5px;
     font-size: 11px;
   }
 
-  .game-stage {
-    width: 100%;
+  .info-dialog {
+    max-height: 92dvh;
   }
 }
 
 @media (orientation: landscape) and (max-height: 560px) {
   .app-shell {
-    grid-template-rows: minmax(0, 1fr);
+    gap: 4px;
   }
 
   .game-controls {
-    position: fixed;
-    right: max(8px, env(safe-area-inset-right));
-    bottom: max(8px, env(safe-area-inset-bottom));
-    width: auto;
-    padding: 5px;
-    border: 0;
-    background: rgba(0, 0, 0, 0.72);
+    display: flex;
+    min-height: 32px;
+    padding: 2px 4px;
+    border-width: 1px;
     box-shadow: none;
   }
 
-  .game-controls p,
-  #zoomButton {
+  .game-controls p {
     display: none;
   }
 
+  .control-buttons {
+    display: flex;
+    width: 100%;
+    justify-content: center;
+    gap: 6px;
+  }
+
   .control-buttons button {
-    opacity: 0.82;
+    min-height: 28px;
+    padding: 3px 10px;
+    font-size: 11px;
+  }
+
+  .info-dialog {
+    width: min(760px, calc(100vw - 16px));
+    max-height: calc(100dvh - 12px);
+  }
+
+  .info-dialog article {
+    padding: 10px 12px 12px;
+  }
+
+  .info-dialog p,
+  .info-dialog li {
+    font-size: 12px;
+    line-height: 1.3;
   }
 }

@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="#000000" />
     <title>Кинг</title>
-    <link rel="stylesheet" href="./src/styles.css?v=single-player-2" />
+    <link rel="stylesheet" href="./src/styles.css?v=native-1" />
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
   </head>
   <body>
@@ -19,14 +19,13 @@
             tabindex="0"
             aria-label="Игровое поле. Нажимайте на персонажей и карты."
           ></canvas>
-          <canvas id="inputOverlay" width="640" height="350" aria-hidden="true"></canvas>
 
           <p id="orientationHint" class="orientation-hint">Поверните телефон горизонтально — так карты будут крупнее.</p>
 
           <div id="loadingOverlay" class="loading-overlay" role="status" aria-live="polite">
             <div class="loading-window">
               <strong>КИНГ</strong>
-              <span id="loadingText">Запускаем оригинальную игру…</span>
+              <span id="loadingText">Загрузка</span>
               <span class="loading-bar" aria-hidden="true"><i id="loadingBar"></i></span>
               <button id="retryButton" type="button" hidden>Повторить запуск</button>
             </div>
@@ -35,7 +34,7 @@
       </section>
 
       <footer class="game-controls">
-        <p id="gameHint">После загрузки выберите трёх партнёров, затем игра начнётся автоматически.</p>
+        <p id="gameHint">Загрузка</p>
         <div class="control-buttons">
           <button id="restartButton" type="button">Начать заново</button>
           <button id="rulesButton" type="button">Правила</button>
@@ -58,13 +57,13 @@
         </ul>
         <h3>Контракты</h3>
         <ol>
-          <li>Не брать взятки.</li>
-          <li>Не брать червей.</li>
-          <li>Не брать мальчиков — королей и валетов.</li>
-          <li>Не брать девочек — дам.</li>
-          <li>Не брать две последние взятки.</li>
-          <li>Не брать Кинга — короля червей.</li>
-          <li>Ералаш — одновременно нельзя брать ничего из перечисленного.</li>
+          <li>Не брать взятки — по −20 за каждую.</li>
+          <li>Не брать червей — по −20 за каждую карту червовой масти.</li>
+          <li>Не брать мальчиков — по −20 за каждого короля и валета.</li>
+          <li>Не брать девочек — по −40 за каждую даму.</li>
+          <li>Не брать две последние взятки — по −80 за каждую.</li>
+          <li>Не брать Кинга — −160 за короля червей.</li>
+          <li>Ералаш — все перечисленные штрафы действуют одновременно.</li>
         </ol>
         <p>После штрафной половины те же контракты играются «в плюс»: нужные карты и взятки уже надо брать. В контрактах «Черви», «Кинг» и «Ералаш» нельзя начинать взятку с червей, пока на руке есть другая масть.</p>
         <form method="dialog" class="dialog-actions"><button type="submit">Понятно</button></form>
@@ -80,12 +79,10 @@
         <p><strong>«Кинг»</strong> — оригинальная DOS-игра, версия 1.7 от 22 августа 1993 года.</p>
         <p>Автор программы и оригинальной графики — Вадим Башуров (Bady), Арзамас-16. Игра написана на Turbo Pascal.</p>
         <p>Адаптацию для Telegram сделал канал <a href="https://t.me/oodalenka" target="_blank" rel="noopener noreferrer">@oodalenka</a>.</p>
-        <p>В этой версии запускается исходный <code>KING.EXE</code>, поэтому сохранены оригинальные рисунки, правила и поведение компьютерных партнёров.</p>
         <form method="dialog" class="dialog-actions"><button type="submit">Закрыть</button></form>
       </article>
     </dialog>
 
-    <script src="./vendor/emulators/emulators.js?v=8.4.1"></script>
-    <script type="module" src="./src/single-player.js?v=single-player-2"></script>
+    <script type="module" src="./src/native-game.js?v=native-1"></script>
   </body>
 </html>

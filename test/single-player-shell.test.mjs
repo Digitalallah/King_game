@@ -28,6 +28,7 @@ test('browser pointer movement is never forwarded to the DOS cursor', () => {
   assert.match(source, /moveOriginalPointer/);
   assert.match(source, /playerCardAtPoint/);
   assert.match(source, /Карта выбрана/);
+  assert.match(source, /waitForHandChange/);
 });
 
 test('Cloudflare assets exclude repository internals', () => {

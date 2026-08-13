@@ -338,6 +338,28 @@ function cardHelpText() {
   return 'Коснитесь карты один раз, чтобы выбрать её, и второй раз — чтобы сделать ход.';
 }
 
+async function waitForTableAfterSelection(generation, timeoutMs = 1400) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline && generation === bootGeneration) {
+    if (isGameTableFrame(latestRgb, frameWidth, frameHeight, 3)) return true;
+    await delay(50);
+  }
+  return false;
+}
+
+async function waitForHandChange(previousCount, generation, timeoutMs = 1200) {
+  const deadline = Date.now() + timeoutMs;
+  let slots = detectPlayerCardSlots(latestRgb, frameWidth, frameHeight, 3);
+
+  while (Date.now() < deadline && generation === bootGeneration) {
+    slots = detectPlayerCardSlots(latestRgb, frameWidth, frameHeight, 3);
+    if (slots.length < previousCount) return slots;
+    await delay(50);
+  }
+
+  return slots;
+}
+
 async function handlePartnerTap(activeClient, generation, x, y) {
   const partner = partnerAtPoint(x, y);
   if (!partner) {
@@ -352,6 +374,7 @@ async function handlePartnerTap(activeClient, generation, x, y) {
   selectedPartners.add(partner.index);
   const isLastPartner = selectedPartners.size === 3;
   await performOriginalClick(activeClient, generation, partner.x, partner.y, isLastPartner ? 950 : 380);
+  if (isLastPartner) await waitForTableAfterSelection(generation);
 
   if (isGameTableFrame(latestRgb, frameWidth, frameHeight, 3)) {
     clearCardSelection();
@@ -384,7 +407,7 @@ async function handleCardTap(activeClient, generation, x, y) {
   const beforeCount = slots.length;
   clearCardSelection();
   await performOriginalClick(activeClient, generation, tappedCard.clickX, tappedCard.clickY, 520);
-  const updatedSlots = detectPlayerCardSlots(latestRgb, frameWidth, frameHeight, 3);
+  const updatedSlots = await waitForHandChange(beforeCount, generation);
 
   if (updatedSlots.length < beforeCount) {
     el.hint.textContent = 'Ход принят. Дождитесь следующего хода.';

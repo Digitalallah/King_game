@@ -17,8 +17,10 @@ test('local server exposes only browser assets with correct MIME types', async (
   try {
     const address = server.address();
     const baseUrl = `http://127.0.0.1:${address.port}`;
-    const [page, archive, wasm, gitConfig, readme] = await Promise.all([
+    const [page, lib, font, archive, wasm, gitConfig, readme] = await Promise.all([
       fetch(`${baseUrl}/`),
+      fetch(`${baseUrl}/assets/native/king.lib.bin`),
+      fetch(`${baseUrl}/assets/native/king.fnt.bin`),
       fetch(`${baseUrl}/kingrus.zip`),
       fetch(`${baseUrl}/vendor/emulators/wdosbox.wasm`),
       fetch(`${baseUrl}/.git/config`),
@@ -27,8 +29,12 @@ test('local server exposes only browser assets with correct MIME types', async (
 
     assert.equal(page.status, 200);
     assert.match(page.headers.get('content-type'), /^text\/html/);
-    assert.equal(archive.headers.get('content-type'), 'application/zip');
-    assert.equal(wasm.headers.get('content-type'), 'application/wasm');
+    assert.equal(lib.status, 200);
+    assert.equal(font.status, 200);
+    assert.equal(lib.headers.get('content-type'), 'application/octet-stream');
+    assert.equal(font.headers.get('content-type'), 'application/octet-stream');
+    assert.equal(archive.status, 404);
+    assert.equal(wasm.status, 404);
     assert.equal(gitConfig.status, 404);
     assert.equal(readme.status, 404);
   } finally {

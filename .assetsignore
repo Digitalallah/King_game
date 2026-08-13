@@ -8,5 +8,7 @@ package.json
 scripts
 server.mjs
 test
+vendor
+kingrus.zip
 worker
 wrangler.jsonc

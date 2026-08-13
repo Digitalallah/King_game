@@ -8,12 +8,13 @@ const types = new Map([
   ['.js', 'text/javascript; charset=utf-8'],
   ['.css', 'text/css; charset=utf-8'],
   ['.json', 'application/json; charset=utf-8'],
+  ['.bin', 'application/octet-stream'],
   ['.wasm', 'application/wasm'],
   ['.zip', 'application/zip'],
 ]);
 
-const publicFiles = new Set(['/index.html', '/kingrus.zip']);
-const publicDirectories = ['/src/', '/vendor/emulators/'];
+const publicFiles = new Set(['/index.html']);
+const publicDirectories = ['/src/', '/assets/native/'];
 
 function isPublicPath(pathname) {
   return publicFiles.has(pathname) || publicDirectories.some(prefix => pathname.startsWith(prefix));
@@ -33,7 +34,7 @@ function serveStatic(root, req, res) {
 
   res.writeHead(200, {
     'Content-Type': types.get(extname(file).toLowerCase()) || 'application/octet-stream',
-    'Cache-Control': pathname.startsWith('/vendor/') ? 'public, max-age=31536000, immutable' : 'no-cache',
+    'Cache-Control': pathname.startsWith('/assets/native/') ? 'public, max-age=31536000, immutable' : 'no-cache',
   });
   createReadStream(file).pipe(res);
 }

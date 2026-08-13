@@ -93,8 +93,7 @@ a {
   }
 }
 
-#gameCanvas,
-#inputOverlay {
+#gameCanvas {
   position: absolute;
   inset: 0;
   display: block;
@@ -111,10 +110,6 @@ a {
   user-select: none;
   -webkit-user-select: none;
   -webkit-touch-callout: none;
-}
-
-#inputOverlay {
-  pointer-events: none;
 }
 
 .orientation-hint {

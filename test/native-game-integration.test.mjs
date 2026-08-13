@@ -56,7 +56,7 @@ async function captureFrame(context, name) {
   await writeFile(`${directory}/${name}.rgba`, context.lastFrame.data);
 }
 
-test('native UI selects three partners and plays a card with two direct taps', { timeout: 4000 }, async () => {
+test('native UI handles mobile taps and completes all fourteen contracts', { timeout: 15_000 }, async () => {
   const context = {
     imageSmoothingEnabled: false,
     lastFrame: null,
@@ -73,9 +73,19 @@ test('native UI selects three partners and plays a card with two direct taps', {
   canvas.width = 640;
   canvas.height = 350;
   canvas.getContext = () => context;
-  canvas.getBoundingClientRect = () => ({ left: 0, top: 0, width: 640, height: 350 });
+  const mobileRect = { left: 0, top: 0, width: 360, height: 196.875 };
+  canvas.getBoundingClientRect = () => mobileRect;
   canvas.setPointerCapture = () => {};
   canvas.releasePointerCapture = () => {};
+  let pointerId = 0;
+  const pointerTap = (x, y, jitterX = 0, jitterY = 0) => {
+    pointerId += 1;
+    const clientX = mobileRect.left + x * mobileRect.width / 640;
+    const clientY = mobileRect.top + y * mobileRect.height / 350;
+    const shared = { isPrimary: true, pointerId, preventDefault() {} };
+    canvas.emit('pointerdown', { ...shared, clientX, clientY });
+    canvas.emit('pointerup', { ...shared, clientX: clientX + jitterX, clientY: clientY + jitterY });
+  };
 
   const selectorIds = {
     '#gameCanvas': 'gameCanvas',
@@ -117,9 +127,9 @@ test('native UI selects three partners and plays a card with two direct taps', {
   assert.ok(context.lastFrame, 'the partner picker rendered a canvas frame');
   await captureFrame(context, 'partners');
 
-  debug.tap(200, 60);
-  debug.tap(280, 60);
-  debug.tap(360, 60);
+  pointerTap(200, 60, 18, 0);
+  pointerTap(280, 60);
+  pointerTap(360, 60);
   await eventually(() => debug.snapshot().screen === 'table');
   assert.deepEqual(debug.snapshot().selectedPartnerIds, [0, 1, 2]);
 
@@ -134,12 +144,31 @@ test('native UI selects three partners and plays a card with two direct taps', {
   const card = playerTurn.game.playerCards.find(candidate => candidate.id === legalId);
   assert.ok(card);
 
-  debug.tap(card.x + 2, 310);
+  pointerTap(card.x + 2, 310, 0, 4);
   assert.equal(debug.snapshot().selectedCardId, legalId);
   await captureFrame(context, 'card-selected');
-  debug.tap(card.x + 2, 310);
+  pointerTap(card.x + 2, 310);
   assert.equal(debug.snapshot().game.handCounts[0], 7);
   assert.equal(debug.snapshot().selectedCardId, null);
+
+  const gameDeadline = Date.now() + 12_000;
+  while (Date.now() < gameDeadline) {
+    const snapshot = debug.snapshot();
+    if (snapshot.game?.status === 'game-over') break;
+    if (snapshot.game?.status === 'playing' && snapshot.game.currentSeat === 0 && !snapshot.inputLocked) {
+      const nextLegalId = snapshot.game.legalPlayerCardIds[0];
+      const nextCard = snapshot.game.playerCards.find(candidate => candidate.id === nextLegalId);
+      assert.ok(nextCard, `legal card ${nextLegalId} must have a visible position`);
+      pointerTap(nextCard.x + 2, 310);
+      pointerTap(nextCard.x + 2, 310);
+    }
+    await new Promise(resolve => setTimeout(resolve, 3));
+  }
+
+  const completed = debug.snapshot();
+  assert.equal(completed.game.status, 'game-over');
+  assert.equal(completed.game.contractIndex, 13);
+  assert.deepEqual(completed.game.handCounts, [0, 0, 0, 0]);
 
   element('restartButton').emit('click');
   assert.equal(debug.snapshot().screen, 'partners');

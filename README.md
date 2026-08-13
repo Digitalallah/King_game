@@ -1,123 +1,60 @@
-# King_game
+# Кинг — одиночный Telegram-прототип
 
-Адаптированная web-версия карточной игры «Кинг» для Telegram Mini App.
+Рабочая web-обёртка оригинальной DOS-игры «Кинг» версии 1.7 от 22 августа 1993 года.
 
-## Что внутри
+## Что работает
 
-- Одиночная партия против трех ботов — существующий режим сохранен.
-- Сетевое лобби через Cloudflare Worker, Durable Objects и WebSocket: один Durable Object обслуживает одну комнату.
-- Статический фронтенд раздается через Cloudflare Workers Static Assets.
-- Комната создается кнопкой «Создать игру», хост автоматически занимает первое место, а ссылка имеет формат `https://t.me/BOT_USERNAME/APP_SHORT_NAME?startapp=room_ROOMID`.
-- При старте Mini App приложение читает `Telegram.WebApp.initDataUnsafe.start_param`, а затем `tgWebAppStartParam` как fallback, и подключает игрока к комнате.
-- В лобби отображаются четыре места с именем, Telegram-аватаром, статусом подключения и статусом «Готов».
-- Сервер авторитетен: клиент отправляет только Telegram `initData`, а назначение мест, переподключение и старт комнаты проверяются в Durable Object.
-- Firebase и D1 не используются.
-- Колода на 32 карты: 7, 8, 9, 10, J, Q, K, A четырех мастей.
-- Полная последовательность одиночной DOS-версии: 7 штрафных контрактов и затем те же 7 контрактов на плюс.
+- исходная графика 640×350 без перерисовки и стилизации;
+- все 12 оригинальных персонажей;
+- оригинальные карты, рубашки, таблицы и экраны результатов;
+- исходная логика контрактов, подсчёта очков и поведения компьютерных соперников;
+- выбор трёх партнёров мышью или касанием;
+- запуск в обычном браузере и Telegram Mini App;
+- автоматический пропуск газетной заставки и служебных запросов при старте;
+- полноэкранный режим и масштаб 1:1.
 
-> Сейчас реализовано только сетевое лобби. Карточная игровая логика пока остается локальной/одиночной и не перенесена на сервер.
+Сетевой режим, комнаты, приглашения и Durable Objects удалены из активного прототипа. Их история остаётся в Git.
+
+## Почему сейчас используется эмуляция
+
+Это контрольная версия с гарантированно точным поведением: в браузере исполняется исходный `KING.EXE` из `kingrus.zip`. На её основе можно покадрово сверять последующий нативный web-порт и не подменять оригинал приблизительной стилизацией или собственной логикой ботов.
+
+DOSBox-backend взят из пакета `emulators` 8.4.1 проекта js-dos и хранится локально в `vendor/emulators/`, поэтому игра не зависит от внешнего CDN.
 
 ## Локальный запуск
 
-### Одиночный статический режим
+Требуется Node.js 20 или новее.
 
 ```bash
-python3 -m http.server 8080
+npm start
 ```
 
-Откройте `http://localhost:8080`.
+Откройте http://localhost:8080. После загрузки сразу появится оригинальный экран выбора партнёров.
 
-### Cloudflare Worker + Durable Objects + WebSocket
-
-Для локальной разработки без Telegram включен явно отмеченный dev-режим в `src/config.js` для `localhost`/`127.0.0.1`, а Worker должен получить `DEV_AUTH=true`.
+## Проверка
 
 ```bash
-npx wrangler dev --var DEV_AUTH:true
+npm test
+npm run check
 ```
 
-Откройте URL, который покажет Wrangler. Хост нажимает «Создать игру», Worker создает короткий `roomId`, Durable Object закрепляет хоста за первым местом, а фронтенд показывает Telegram-ссылку для приглашения.
+Smoke-тест запускает настоящий `KING.EXE`, проходит стартовые запросы и проверяет появление экрана выбора партнёров в разрешении 640×350.
 
-## WebSocket-протокол лобби
-
-Клиент подключается к:
-
-```text
-GET /api/rooms/:roomId/ws?initData=<Telegram.WebApp.initData>
-```
-
-В dev-режиме без Telegram:
-
-```text
-GET /api/rooms/:roomId/ws?dev=1&devUser=<local-id>&devName=<name>
-```
-
-Сообщения сервера:
-
-- `welcome` — подтверждение подключения: `{ roomId, seat, isHost }`.
-- `roomState` — авторитетное состояние комнаты: `{ roomId, status, hostUserId, seats }`.
-- `gameStarting` — хост запросил старт, проверка Durable Object пройдена.
-- `error` — ошибка авторизации, заполненной комнаты или недопустимого действия.
-
-Сообщения клиента:
-
-- `setReady` — запрос сменить готовность текущего игрока: `{ type: "setReady", ready: true }`.
-- `startGame` — запрос хоста начать игру. Durable Object принимает его только от хоста и только при минимум двух подключенных игроках.
-
-## Авторизация Telegram
-
-Фронтенд отправляет `Telegram.WebApp.initData` в Worker:
-
-- для `POST /api/rooms` — в заголовке `x-telegram-init-data`;
-- для WebSocket — в query-параметре `initData`.
-
-Worker валидирует подпись через `BOT_TOKEN`, который хранится только как Cloudflare secret. `initDataUnsafe` используется на клиенте только для удобного отображения имени/параметра запуска и не является доказательством личности.
-
-## Деплой в Cloudflare
-
-1. Установите Wrangler, если он еще не установлен:
+## Cloudflare / Telegram
 
 ```bash
-npm install --save-dev wrangler
+npx wrangler@4.122.0 deploy
 ```
 
-2. Задайте секрет бота вручную:
+Полученный HTTPS-адрес указывается в BotFather как URL Mini App. Токен бота и серверные bindings для одиночной версии не нужны.
 
-```bash
-npx wrangler secret put BOT_TOKEN
-```
+## Структура
 
-3. Проверьте `wrangler.jsonc`:
+- `index.html` — оболочка Mini App;
+- `src/single-player.js` — загрузка DOSBox, рендеринг canvas и управление касаниями;
+- `src/original-config.js` — конфигурация оригинала и автоматический старт;
+- `kingrus.zip` — предоставленный архив исходной игры;
+- `vendor/emulators/` — локальный DOSBox WebAssembly backend;
+- `worker/index.js` — раздача статических файлов и health-check.
 
-- `BOT_USERNAME` — username Telegram-бота без `@`;
-- `APP_SHORT_NAME` — short name Mini App из BotFather;
-- binding Durable Object `GAME_ROOM`;
-- Static Assets binding `ASSETS`.
-
-4. Задеплойте Worker:
-
-```bash
-npx wrangler deploy
-```
-
-5. В BotFather укажите HTTPS URL задеплоенного Worker как URL Mini App.
-
-## Необходимые Cloudflare bindings
-
-- `ASSETS` — Cloudflare Workers Static Assets, директория `.`.
-- `GAME_ROOM` — Durable Object namespace для класса `GameRoom`.
-
-## Секреты и переменные
-
-Секреты, которые нужно добавить вручную:
-
-- `BOT_TOKEN` — токен Telegram-бота из BotFather.
-
-Переменные в `wrangler.jsonc`:
-
-- `BOT_USERNAME` — имя бота без `@`.
-- `APP_SHORT_NAME` — short name Mini App.
-- `DEV_AUTH` — `false` в продакшене; `true` только для локальной разработки.
-
-## Оригинальные ресурсы
-
-Бинарные файлы оригинальной DOS-игры и извлеченные PNG не хранятся в репозитории. Для локальной работы положите оригиналы в `assets/original/` и используйте скрипт `scripts/extract_original_assets.py`; этот путь добавлен в `.gitignore` и должен оставаться только ссылкой в коде или документации. Подробнее см. `docs/original-assets.md`.
+Технические результаты первичного разбора собраны в [docs/reverse-engineering.md](docs/reverse-engineering.md).

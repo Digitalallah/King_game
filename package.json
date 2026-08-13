@@ -1,6 +1,10 @@
 {
+  "name": "king-game",
+  "private": true,
   "type": "module",
   "scripts": {
-    "test": "node --test"
+    "start": "node server.mjs",
+    "test": "node --test",
+    "check": "node --check src/original-config.js && node --check src/single-player.js && node --check server.mjs && node --check worker/index.js"
   }
 }

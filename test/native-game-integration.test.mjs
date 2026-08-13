@@ -16,6 +16,7 @@ class MockElement {
     this.id = id;
     this.hidden = false;
     this.open = false;
+    this.disabled = false;
     this.textContent = '';
     this.style = {};
     this.href = 'https://t.me/oodalenka';
@@ -105,6 +106,10 @@ test('native UI handles mobile taps and completes all fourteen contracts', { tim
     '#loadingText': 'loadingText',
     '#loadingBar': 'loadingBar',
     '#retryButton': 'retryButton',
+    '#startOverlay': 'startOverlay',
+    '#savedGameInfo': 'savedGameInfo',
+    '#continueButton': 'continueButton',
+    '#newGameButton': 'newGameButton',
     '#restartButton': 'restartButton',
     '#soundButton': 'soundButton',
     '#rulesButton': 'rulesButton',
@@ -144,6 +149,7 @@ test('native UI handles mobile taps and completes all fourteen contracts', { tim
     localStorage: {
       getItem(key) { return storedValues.get(key) ?? null; },
       setItem(key, value) { storedValues.set(key, String(value)); },
+      removeItem(key) { storedValues.delete(key); },
     },
     Telegram: {
       WebApp: {
@@ -188,6 +194,10 @@ test('native UI handles mobile taps and completes all fourteen contracts', { tim
   assert.equal(fullscreenRequests, 1);
 
   const debug = await eventually(() => window.__kingDebug);
+  await eventually(() => debug.snapshot().screen === 'start');
+  assert.equal(element('continueButton').disabled, true);
+  assert.equal(element('savedGameInfo').textContent, 'Сохранённой игры нет');
+  element('newGameButton').emit('click');
   await eventually(() => debug.snapshot().screen === 'partners');
   assert.equal(element('soundButton').textContent, 'Звук: вкл');
   element('soundButton').emit('click');
@@ -207,13 +217,31 @@ test('native UI handles mobile taps and completes all fourteen contracts', { tim
   await eventually(() => debug.snapshot().screen === 'table');
   assert.deepEqual(debug.snapshot().selectedPartnerIds, [0, 1, 2]);
 
-  const playerTurn = await eventually(() => {
+  let playerTurn = await eventually(() => {
     const snapshot = debug.snapshot();
     return snapshot.game?.status === 'playing' && snapshot.game.currentSeat === 0 && !snapshot.inputLocked
       ? snapshot
       : null;
   });
   assert.match(element('gameHint').textContent, /^Ваш ход\./);
+  const saveBeforeReload = JSON.parse(storedValues.get('king-single-player-save'));
+  assert.equal(saveBeforeReload.version, 1);
+  assert.equal(saveBeforeReload.contractIndex, playerTurn.game.contractIndex);
+  assert.deepEqual(saveBeforeReload.scores, playerTurn.game.scores);
+
+  element('retryButton').emit('click');
+  await eventually(() => debug.snapshot().screen === 'start');
+  assert.equal(element('continueButton').disabled, false);
+  assert.match(element('savedGameInfo').textContent, /контракт 1 из 14/);
+  element('continueButton').emit('click');
+  playerTurn = await eventually(() => {
+    const snapshot = debug.snapshot();
+    return snapshot.game?.status === 'playing' && snapshot.game.currentSeat === 0 && !snapshot.inputLocked
+      ? snapshot
+      : null;
+  });
+  assert.deepEqual(playerTurn.game.scores, saveBeforeReload.scores);
+  assert.deepEqual(playerTurn.game.handCounts, saveBeforeReload.hands.map(hand => hand.length));
   await captureFrame(context, 'table-player-turn');
   const legalId = playerTurn.game.legalPlayerCardIds[0];
   const card = playerTurn.game.playerCards.find(candidate => candidate.id === legalId);
@@ -283,6 +311,7 @@ test('native UI handles mobile taps and completes all fourteen contracts', { tim
   assert.ok(completed.game.winnerSeats.every(seat => (
     completed.game.scores[seat] === completed.game.winningScore
   )));
+  assert.equal(storedValues.has('king-single-player-save'), false);
   await captureFrame(context, 'game-over');
 
   element('restartButton').emit('click');

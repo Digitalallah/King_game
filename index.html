@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="#000000" />
     <title>Кинг</title>
-    <link rel="stylesheet" href="./src/styles.css?v=native-6" />
+    <link rel="stylesheet" href="./src/styles.css?v=native-7" />
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
   </head>
   <body>
@@ -28,6 +28,15 @@
               <span id="loadingText">Загрузка</span>
               <span class="loading-bar" aria-hidden="true"><i id="loadingBar"></i></span>
               <button id="retryButton" type="button" hidden>Повторить запуск</button>
+            </div>
+          </div>
+
+          <div id="startOverlay" class="start-overlay" hidden>
+            <div class="start-window" role="group" aria-label="Главное меню">
+              <strong>КИНГ</strong>
+              <span id="savedGameInfo">Сохранённой игры нет</span>
+              <button id="continueButton" type="button">Продолжить игру</button>
+              <button id="newGameButton" type="button">Начать новую</button>
             </div>
           </div>
         </div>
@@ -85,6 +94,6 @@
       </article>
     </dialog>
 
-    <script type="module" src="./src/native-game.js?v=native-6"></script>
+    <script type="module" src="./src/native-game.js?v=native-7"></script>
   </body>
 </html>

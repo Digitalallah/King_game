@@ -10,6 +10,19 @@ test('the active page runs the native canvas game and no network lobby', () => {
   assert.match(html, /src="\.\/src\/native-game\.js/);
   assert.doesNotMatch(html, /inputOverlay|single-player\.js|emulators\.js/);
   assert.doesNotMatch(html, /networkDialog|Создать игру|Пригласить друга/);
+  assert.match(html, /id="continueButton"[^>]*>Продолжить игру</);
+  assert.match(html, /id="newGameButton"[^>]*>Начать новую</);
+});
+
+test('unfinished matches are autosaved and can be resumed', () => {
+  const source = readFileSync(new URL('../src/native-game.js', import.meta.url), 'utf8');
+  const engine = readFileSync(new URL('../src/game-engine.js', import.meta.url), 'utf8');
+  assert.match(source, /SAVE_STORAGE_KEY = 'king-single-player-save'/);
+  assert.match(source, /function saveCurrentGame\(\)/);
+  assert.match(source, /function loadSavedGame\(\)/);
+  assert.match(source, /function continueSavedGame\(\)/);
+  assert.match(source, /removeSavedGame\(\)/);
+  assert.match(engine, /random\.getState/);
 });
 
 test('loading copy is only the word requested by the user', () => {
@@ -114,7 +127,7 @@ test('health reports the native single-player build', async () => {
   assert.equal(response.status, 200);
   const health = await response.json();
   assert.equal(health.mode, 'single-player');
-  assert.equal(health.build, 'native-single-player-6');
+  assert.equal(health.build, 'native-single-player-7');
   assert.equal(response.headers.get('cache-control'), 'no-store');
   assert.equal(response.headers.get('x-content-type-options'), 'nosniff');
 });

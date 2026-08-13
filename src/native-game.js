@@ -12,13 +12,13 @@ import {
   shuffleDeck,
   trickWinner,
   updateCardTapSelection,
-} from './game-engine.js?v=native-6';
+} from './game-engine.js?v=native-7';
 import {
   IndexedRenderer,
   loadKingAssets,
   SCREEN_HEIGHT,
   SCREEN_WIDTH,
-} from './native-assets.js?v=native-6';
+} from './native-assets.js?v=native-7';
 
 const tg = window.Telegram?.WebApp;
 
@@ -29,6 +29,10 @@ const el = {
   loadingText: document.querySelector('#loadingText'),
   loadingBar: document.querySelector('#loadingBar'),
   retryButton: document.querySelector('#retryButton'),
+  startOverlay: document.querySelector('#startOverlay'),
+  savedGameInfo: document.querySelector('#savedGameInfo'),
+  continueButton: document.querySelector('#continueButton'),
+  newGameButton: document.querySelector('#newGameButton'),
   restartButton: document.querySelector('#restartButton'),
   soundButton: document.querySelector('#soundButton'),
   rulesButton: document.querySelector('#rulesButton'),
@@ -51,6 +55,8 @@ const TRICK_COLLECT_HOLD_MS = 650;
 const CONTRACT_RESULT_MS = 2600;
 const ORIENTATION_HINT_MS = 3200;
 const SOUND_STORAGE_KEY = 'king-sound-enabled';
+const SAVE_STORAGE_KEY = 'king-single-player-save';
+const SAVE_VERSION = 1;
 const TRICK_POSITIONS = [
   { x: 295, y: 182 },
   { x: 243, y: 151 },
@@ -68,6 +74,7 @@ const PARTNER_DESCRIPTIONS = [
   ['ОНА ИГРАЕТ', 'ОТЛИЧНО'],
   ['ОН ВСЕГДА', 'МУХЛЮЕТ'],
 ];
+const CARD_BY_ID = new Map(createDeck().map(card => [card.id, card]));
 const requestedSpeed = Number(new URLSearchParams(location.search).get('speed'));
 const TIME_SCALE = Number.isFinite(requestedSpeed) && requestedSpeed > 0
   ? Math.max(0.01, Math.min(4, requestedSpeed))
@@ -190,6 +197,7 @@ function setLoadingBarState(state) {
 function showLoading() {
   screen = 'loading';
   inputLocked = true;
+  el.startOverlay.hidden = true;
   el.loadingText.textContent = 'Загрузка';
   setLoadingBarState('is-starting');
   el.loadingOverlay.hidden = false;
@@ -228,6 +236,143 @@ function saveSoundPreference() {
 function syncSoundButton() {
   el.soundButton.textContent = soundEnabled ? 'Звук: вкл' : 'Звук: выкл';
   el.soundButton.setAttribute('aria-pressed', String(soundEnabled));
+}
+
+function removeSavedGame() {
+  try {
+    window.localStorage?.removeItem(SAVE_STORAGE_KEY);
+  } catch {
+    // A blocked storage API must not prevent starting a new game.
+  }
+}
+
+function scoreArray(value) {
+  return Array.isArray(value)
+    && value.length === 4
+    && value.every(score => Number.isFinite(score));
+}
+
+function loadSavedGame() {
+  try {
+    const raw = window.localStorage?.getItem(SAVE_STORAGE_KEY);
+    if (!raw) return null;
+    const saved = JSON.parse(raw);
+    const partnerIds = saved.selectedPartnerIds;
+    const validPartners = Array.isArray(partnerIds)
+      && partnerIds.length === 3
+      && new Set(partnerIds).size === 3
+      && partnerIds.every(id => Number.isInteger(id) && CHARACTERS[id]);
+    const validStatus = ['playing', 'trick-await', 'contract-result'].includes(saved.status);
+    const validHands = Array.isArray(saved.hands)
+      && saved.hands.length === 4
+      && saved.hands.every(hand => Array.isArray(hand) && hand.length <= 8);
+    const validTrick = Array.isArray(saved.trick)
+      && saved.trick.length <= 4
+      && saved.trick.every(entry => (
+        Number.isInteger(entry?.seat)
+        && entry.seat >= 0
+        && entry.seat < 4
+        && typeof entry.cardId === 'string'
+      ));
+    const validNumbers = Number.isInteger(saved.randomState)
+      && saved.randomState > 0
+      && Number.isInteger(saved.contractIndex)
+      && saved.contractIndex >= 0
+      && saved.contractIndex < CONTRACTS.length
+      && Number.isInteger(saved.currentSeat)
+      && saved.currentSeat >= 0
+      && saved.currentSeat < 4
+      && Number.isInteger(saved.trickNumber)
+      && saved.trickNumber >= 0
+      && saved.trickNumber <= 8;
+    if (
+      saved.version !== SAVE_VERSION
+      || !validPartners
+      || !validStatus
+      || !validHands
+      || !validTrick
+      || !validNumbers
+      || !scoreArray(saved.scores)
+      || !scoreArray(saved.dealScores)
+      || (saved.status === 'playing' && saved.trick.length >= 4)
+      || (saved.status === 'trick-await' && saved.trick.length !== 4)
+      || (saved.status === 'contract-result' && saved.trick.length !== 0)
+    ) throw new Error('Invalid saved game');
+
+    const usedCardIds = new Set();
+    const restoreCard = cardId => {
+      const card = CARD_BY_ID.get(cardId);
+      if (!card || usedCardIds.has(cardId)) throw new Error('Invalid saved cards');
+      usedCardIds.add(cardId);
+      return card;
+    };
+    const hands = saved.hands.map(hand => hand.map(restoreCard));
+    const trickSeats = new Set();
+    const trick = saved.trick.map(entry => {
+      if (trickSeats.has(entry.seat)) throw new Error('Invalid saved trick');
+      trickSeats.add(entry.seat);
+      return { seat: entry.seat, card: restoreCard(entry.cardId) };
+    });
+    const trickWinnerSeat = saved.trickWinnerSeat === null
+      ? null
+      : Number(saved.trickWinnerSeat);
+    if (
+      trickWinnerSeat !== null
+      && (!Number.isInteger(trickWinnerSeat) || trickWinnerSeat < 0 || trickWinnerSeat > 3)
+    ) throw new Error('Invalid saved trick winner');
+    if (
+      (saved.status === 'trick-await' && trickWinnerSeat !== saved.currentSeat)
+      || (saved.status !== 'trick-await' && trickWinnerSeat !== null)
+      || (saved.status === 'contract-result' && hands.some(hand => hand.length !== 0))
+    ) throw new Error('Inconsistent saved state');
+
+    return {
+      selectedPartnerIds: [...partnerIds],
+      randomState: saved.randomState,
+      scores: [...saved.scores],
+      dealScores: [...saved.dealScores],
+      hands,
+      trick,
+      trickWinnerSeat,
+      trickNumber: saved.trickNumber,
+      currentSeat: saved.currentSeat,
+      contractIndex: saved.contractIndex,
+      status: saved.status,
+      savedAt: Number(saved.savedAt) || 0,
+    };
+  } catch {
+    removeSavedGame();
+    return null;
+  }
+}
+
+function saveCurrentGame() {
+  if (
+    screen !== 'table'
+    || !game
+    || !['playing', 'trick-await', 'contract-result'].includes(game.status)
+  ) return;
+
+  try {
+    const payload = {
+      version: SAVE_VERSION,
+      savedAt: Date.now(),
+      selectedPartnerIds: game.characters.map(character => character.id),
+      randomState: game.random.getState(),
+      scores: [...game.scores],
+      dealScores: [...game.dealScores],
+      hands: game.hands.map(hand => hand.map(card => card.id)),
+      trick: game.trick.map(entry => ({ seat: entry.seat, cardId: entry.card.id })),
+      trickWinnerSeat: game.trickWinnerSeat,
+      trickNumber: game.trickNumber,
+      currentSeat: game.currentSeat,
+      contractIndex: game.contractIndex,
+      status: game.status,
+    };
+    window.localStorage?.setItem(SAVE_STORAGE_KEY, JSON.stringify(payload));
+  } catch {
+    // Saving is best-effort when private mode or the host blocks localStorage.
+  }
 }
 
 function prepareAudio(force = false) {
@@ -683,6 +828,7 @@ function announceCurrentTurn() {
     inputLocked = true;
     setHint(`${game.playerNames[game.currentSeat]} думает…`);
   }
+  saveCurrentGame();
   render();
 }
 
@@ -750,6 +896,7 @@ async function playCard(seat, card, token) {
   game.trickWinnerSeat = winner.seat;
   game.status = 'trick-await';
   inputLocked = false;
+  saveCurrentGame();
   setHint(`${game.playerNames[winner.seat]} берёт взятку${points === 0 ? '.' : `: ${formatScore(points)}.`} Нажмите в любую часть экрана.`);
   render();
   tg?.HapticFeedback?.notificationOccurred?.('success');
@@ -759,12 +906,14 @@ async function finishContract(token) {
   if (token !== runToken) return;
   game.status = 'contract-result';
   inputLocked = true;
+  saveCurrentGame();
   render();
   setHint(`Раздача окончена. Следующая начнётся через несколько секунд.`);
 
   if (!await gameDelay(CONTRACT_RESULT_MS, token)) return;
   if (game.contractIndex >= CONTRACTS.length - 1) {
     game.status = 'game-over';
+    removeSavedGame();
     render();
     const { winningScore, winnerSeats } = matchResult(game.scores);
     const winnerNames = winnerSeats.map(seat => game.playerNames[seat]).join(', ');
@@ -791,6 +940,7 @@ function startContract(contractIndex) {
   game.status = 'playing';
   selectedCardId = null;
   inputLocked = true;
+  saveCurrentGame();
   render();
   setHint(`${CONTRACTS[contractIndex].name}. Раздаём карты…`);
   void continueCurrentTurn(token, 720);
@@ -821,7 +971,9 @@ function startMatch() {
 function resetToPartnerPicker() {
   if (!renderer) return;
   runToken += 1;
+  removeSavedGame();
   el.loadingOverlay.hidden = true;
+  el.startOverlay.hidden = true;
   screen = 'partners';
   game = null;
   selectedPartnerIds = [];
@@ -830,6 +982,73 @@ function resetToPartnerPicker() {
   inputLocked = false;
   render();
   setHint('Выберите трёх партнёров: один тап сразу выбирает персонажа.');
+}
+
+function showStartMenu() {
+  if (!renderer) return;
+  runToken += 1;
+  screen = 'start';
+  game = null;
+  selectedPartnerIds = [];
+  selectedCardId = null;
+  pointerStart = null;
+  inputLocked = true;
+  const saved = loadSavedGame();
+  el.loadingOverlay.hidden = true;
+  el.startOverlay.hidden = false;
+  el.continueButton.disabled = !saved;
+  el.continueButton.setAttribute('aria-disabled', String(!saved));
+  el.savedGameInfo.textContent = saved
+    ? `Сохранено: контракт ${saved.contractIndex + 1} из ${CONTRACTS.length}`
+    : 'Сохранённой игры нет';
+  renderer.clear(2);
+  renderer.present();
+  setHint('Продолжите сохранённую партию или начните новую.');
+}
+
+function continueSavedGame() {
+  const saved = loadSavedGame();
+  if (!saved) {
+    showStartMenu();
+    return;
+  }
+
+  const token = ++runToken;
+  selectedPartnerIds = [...saved.selectedPartnerIds];
+  selectedCardId = null;
+  pointerStart = null;
+  const characters = selectedPartnerIds.map(id => CHARACTERS[id]);
+  game = {
+    characters,
+    playerNames: ['Товарищ', ...characters.map(character => character.name)],
+    random: createSeededRandom(saved.randomState),
+    scores: [...saved.scores],
+    dealScores: [...saved.dealScores],
+    hands: saved.hands.map(hand => [...hand]),
+    trick: saved.trick.map(entry => ({ ...entry })),
+    trickWinnerSeat: saved.trickWinnerSeat,
+    trickNumber: saved.trickNumber,
+    currentSeat: saved.currentSeat,
+    contractIndex: saved.contractIndex,
+    status: saved.status,
+  };
+  screen = 'table';
+  inputLocked = true;
+  el.startOverlay.hidden = true;
+
+  if (game.status === 'trick-await') {
+    inputLocked = false;
+    setHint(`${game.playerNames[game.currentSeat]} берёт взятку. Нажмите в любую часть экрана.`);
+    render();
+    return;
+  }
+  if (game.status === 'contract-result') {
+    void finishContract(token);
+    return;
+  }
+
+  setHint(`Продолжаем контракт «${CONTRACTS[game.contractIndex].name}».`);
+  void continueCurrentTurn(token, 260);
 }
 
 async function startApplication() {
@@ -843,7 +1062,7 @@ async function startApplication() {
     await delay(180 * TIME_SCALE);
     if (token !== runToken) return;
     el.loadingOverlay.hidden = true;
-    resetToPartnerPicker();
+    showStartMenu();
     el.canvas.focus({ preventScroll: true });
   } catch (error) {
     if (token === runToken) showLoadError(error);
@@ -902,6 +1121,8 @@ function openInfoDialog(dialog) {
   updatePauseState();
 }
 
+el.continueButton.addEventListener('click', continueSavedGame);
+el.newGameButton.addEventListener('click', resetToPartnerPicker);
 el.restartButton.addEventListener('click', resetToPartnerPicker);
 el.soundButton.addEventListener('click', () => {
   soundEnabled = !soundEnabled;

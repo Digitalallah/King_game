@@ -98,4 +98,18 @@ test('one tap selects a card and the second tap requests a play', () => {
 test('all twelve original partner portraits remain available', () => {
   assert.equal(CHARACTERS.length, 12);
   assert.equal(new Set(CHARACTERS.map(character => `${character.spriteId}:${character.cropX}`)).size, 12);
+  assert.deepEqual(CHARACTERS.map(character => character.name), [
+    'Винни Пух',
+    'Кролик',
+    'Иа-Иа',
+    'Пятачок',
+    'Фрекен Бок',
+    'Багира',
+    'Сова',
+    'Оля',
+    'Мишка',
+    'Башуров',
+    'Карлсон',
+    'Борька',
+  ]);
 });

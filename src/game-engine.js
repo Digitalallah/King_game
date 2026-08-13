@@ -35,10 +35,10 @@ export const CHARACTERS = [
   { id: 5, name: 'Багира', spriteId: 53, cropX: 80 },
   { id: 6, name: 'Сова', spriteId: 53, cropX: 160 },
   { id: 7, name: 'Оля', spriteId: 53, cropX: 240 },
-  { id: 8, name: 'Умка', spriteId: 54, cropX: 0 },
-  { id: 9, name: 'Багров', spriteId: 54, cropX: 80 },
+  { id: 8, name: 'Мишка', spriteId: 54, cropX: 0 },
+  { id: 9, name: 'Башуров', spriteId: 54, cropX: 80 },
   { id: 10, name: 'Карлсон', spriteId: 54, cropX: 160 },
-  { id: 11, name: 'Бонька', spriteId: 54, cropX: 240 },
+  { id: 11, name: 'Борька', spriteId: 54, cropX: 240 },
 ];
 
 function makeContract(id, family, direction, noun, value, options = {}) {

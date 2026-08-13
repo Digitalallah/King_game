@@ -61,6 +61,9 @@ test('partner choice, player turn and completed trick are explicit', () => {
   assert.match(source, /'ОН ВСЕГДА'/);
   assert.match(source, /'МУХЛЮЕТ'/);
   assert.match(source, /'ВАШ ХОД'/);
+  assert.match(source, /'ОБЩИЙ СЧЁТ'/);
+  assert.match(source, /'ПОБЕДИТЕЛЬ'/);
+  assert.match(source, /'НИЧЬЯ'/);
   assert.match(source, /game\.status = 'trick-await'/);
   assert.match(source, /collectCompletedTrick/);
   assert.match(source, /holdForOnePaint/);
@@ -106,7 +109,7 @@ test('health reports the native single-player build', async () => {
   assert.equal(response.status, 200);
   const health = await response.json();
   assert.equal(health.mode, 'single-player');
-  assert.equal(health.build, 'native-single-player-4');
+  assert.equal(health.build, 'native-single-player-5');
   assert.equal(response.headers.get('cache-control'), 'no-store');
   assert.equal(response.headers.get('x-content-type-options'), 'nosniff');
 });

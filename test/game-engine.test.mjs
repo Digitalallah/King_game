@@ -9,6 +9,7 @@ import {
   createSeededRandom,
   dealHands,
   legalCards,
+  matchResult,
   scoreTrick,
   shuffleDeck,
   trickWinner,
@@ -93,6 +94,17 @@ test('one tap selects a card and the second tap requests a play', () => {
   assert.deepEqual(updateCardTapSelection(null, 'clubs-7'), { selectedCardId: 'clubs-7', shouldPlay: false });
   assert.deepEqual(updateCardTapSelection('clubs-7', 'clubs-8'), { selectedCardId: 'clubs-8', shouldPlay: false });
   assert.deepEqual(updateCardTapSelection('clubs-8', 'clubs-8'), { selectedCardId: null, shouldPlay: true });
+});
+
+test('the highest cumulative score wins and equal leaders draw', () => {
+  assert.deepEqual(matchResult([-120, 40, 10, -30]), {
+    winningScore: 40,
+    winnerSeats: [1],
+  });
+  assert.deepEqual(matchResult([80, -20, 80, 10]), {
+    winningScore: 80,
+    winnerSeats: [0, 2],
+  });
 });
 
 test('all twelve original partner portraits remain available', () => {

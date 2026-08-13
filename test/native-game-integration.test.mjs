@@ -264,6 +264,12 @@ test('native UI handles mobile taps and completes all fourteen contracts', { tim
   assert.equal(completed.game.status, 'game-over');
   assert.equal(completed.game.contractIndex, 13);
   assert.deepEqual(completed.game.handCounts, [0, 0, 0, 0]);
+  assert.equal(completed.game.winningScore, Math.max(...completed.game.scores));
+  assert.ok(completed.game.winnerSeats.length >= 1);
+  assert.ok(completed.game.winnerSeats.every(seat => (
+    completed.game.scores[seat] === completed.game.winningScore
+  )));
+  await captureFrame(context, 'game-over');
 
   element('restartButton').emit('click');
   assert.equal(debug.snapshot().screen, 'partners');

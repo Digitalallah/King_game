@@ -7,17 +7,18 @@ import {
   dealHands,
   formatScore,
   legalCards,
+  matchResult,
   scoreTrick,
   shuffleDeck,
   trickWinner,
   updateCardTapSelection,
-} from './game-engine.js?v=native-4';
+} from './game-engine.js?v=native-5';
 import {
   IndexedRenderer,
   loadKingAssets,
   SCREEN_HEIGHT,
   SCREEN_WIDTH,
-} from './native-assets.js?v=native-4';
+} from './native-assets.js?v=native-5';
 
 const tg = window.Telegram?.WebApp;
 
@@ -382,7 +383,8 @@ function drawScoreBox() {
   renderer.drawSprite(61, 521, 305, 2);
   renderer.drawSprite(61, 598, 305, 2);
 
-  const values = game.dealScores;
+  renderer.printCentered('ОБЩИЙ СЧЁТ', 568, 237, 0, 8, 7);
+  const values = game.scores;
   renderer.printCentered(formatScore(values[2]), 568, 256, 15, 14, 7);
   renderer.printCentered(formatScore(values[1]), 535, 280, 15, 14, 7);
   renderer.printCentered(formatScore(values[3]), 601, 280, 15, 14, 7);
@@ -466,21 +468,45 @@ function drawThinkingBubble() {
 
 function drawResultOverlay() {
   if (game.status !== 'contract-result' && game.status !== 'game-over') return;
-  renderer.fillRect(149, 84, 342, 174, 0);
-  renderer.strokeRect(149, 84, 342, 174, 15, 2);
-  renderer.strokeRect(154, 89, 332, 164, 2, 2);
+  const isFinal = game.status === 'game-over';
+  const { winningScore, winnerSeats } = matchResult(game.scores);
+  const names = game.playerNames;
+  const seats = [0, 1, 2, 3];
+  const displaySeats = isFinal
+    ? [...seats].sort((left, right) => game.scores[right] - game.scores[left] || left - right)
+    : seats;
 
-  const title = game.status === 'game-over' ? 'ИГРА ОКОНЧЕНА' : 'РАЗДАЧА ОКОНЧЕНА';
-  renderer.printCentered(title, 320, 99, 14, 14, 9);
+  renderer.fillRect(112, 67, 416, 218, 0);
+  renderer.strokeRect(112, 67, 416, 218, 15, 2);
+  renderer.strokeRect(117, 72, 406, 208, 2, 2);
 
-  const names = ['Товарищ', ...game.characters.map(character => character.name)];
-  for (let seat = 0; seat < 4; seat += 1) {
-    const y = 130 + seat * 24;
-    renderer.print(names[seat], 180, y - 3, seat === PLAYER_SEAT ? 14 : 15, 14, 8);
-    renderer.printCentered(formatScore(game.scores[seat]), 424, y - 3, seat === PLAYER_SEAT ? 14 : 15, 14, 8);
+  const title = isFinal ? 'ИГРА ОКОНЧЕНА' : 'РАЗДАЧА ОКОНЧЕНА';
+  renderer.printCentered(title, 320, 81, 14, 14, 9);
+
+  const summary = isFinal
+    ? `${winnerSeats.length === 1 ? 'ПОБЕДИТЕЛЬ' : 'НИЧЬЯ'}: ${winnerSeats.map(seat => names[seat]).join(', ')}`
+    : `ОБЩИЙ СЧЁТ ПОСЛЕ ${game.contractIndex + 1} ИЗ ${CONTRACTS.length}`;
+  renderer.printCentered(summary, 320, 105, isFinal ? 14 : 10, 14, 7);
+
+  for (let row = 0; row < displaySeats.length; row += 1) {
+    const seat = displaySeats[row];
+    const y = 132 + row * 25;
+    const rank = isFinal
+      ? 1 + displaySeats.findIndex(candidate => game.scores[candidate] === game.scores[seat])
+      : null;
+    const name = isFinal ? `${rank}. ${names[seat]}` : names[seat];
+    const color = isFinal
+      ? (winnerSeats.includes(seat) ? 14 : 15)
+      : (seat === PLAYER_SEAT ? 14 : 15);
+    renderer.print(name, 154, y, color, 14, 8);
+    renderer.printCentered(formatScore(game.scores[seat]), 468, y, color, 14, 8);
   }
 
-  if (game.status === 'game-over') renderer.printCentered('НАЧАТЬ ЗАНОВО — КНОПКА ВНИЗУ', 320, 231, 10, 6, 6);
+  const footer = isFinal
+    ? `ЛУЧШИЙ СЧЁТ: ${formatScore(winningScore)}`
+    : 'СЛЕДУЮЩАЯ РАЗДАЧА СКОРО';
+  renderer.printCentered(footer, 320, 247, 10, 8, 7);
+  if (isFinal) renderer.printCentered('НАЧАТЬ ЗАНОВО: КНОПКА ВНИЗУ', 320, 265, 15, 8, 7);
 }
 
 function renderGameTable() {
@@ -708,7 +734,12 @@ async function finishContract(token) {
   if (game.contractIndex >= CONTRACTS.length - 1) {
     game.status = 'game-over';
     render();
-    setHint('Игра окончена. Для новой партии нажмите «Начать заново».');
+    const { winningScore, winnerSeats } = matchResult(game.scores);
+    const winnerNames = winnerSeats.map(seat => game.playerNames[seat]).join(', ');
+    const resultText = winnerSeats.length === 1
+      ? `Победитель: ${winnerNames}`
+      : `Ничья: ${winnerNames}`;
+    setHint(`${resultText}. Лучший счёт: ${formatScore(winningScore)}. Для новой партии нажмите «Начать заново».`);
     tg?.HapticFeedback?.notificationOccurred?.('success');
     return;
   }
@@ -881,6 +912,7 @@ window.__kingDebug = {
           ? legalCards(game.hands[0], game.trick, CONTRACTS[game.contractIndex]).map(card => card.id)
           : [],
         scores: [...game.scores],
+        ...matchResult(game.scores),
       } : null,
     };
   },

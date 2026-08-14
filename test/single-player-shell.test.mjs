@@ -4,12 +4,28 @@ import test from 'node:test';
 
 import worker from '../worker/index.js';
 
-test('the active page runs the native canvas game and no network lobby', () => {
+test('the active page keeps the native canvas game and adds its network lobby', () => {
   const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
   assert.match(html, /id="gameCanvas"/);
   assert.match(html, /src="\.\/src\/native-game\.js/);
   assert.doesNotMatch(html, /inputOverlay|single-player\.js|emulators\.js/);
-  assert.doesNotMatch(html, /networkDialog|Создать игру|Пригласить друга/);
+  assert.match(html, /id="networkDialog"/);
+  assert.match(html, /id="networkNameInput"/);
+  assert.match(html, /id="networkInviteButton"[^>]*>Пригласить в Telegram</);
+  assert.match(html, /id="networkStartButton"[^>]*disabled>Начать игру</);
+  assert.match(html, /id="continueButton"[^>]*>Продолжить игру</);
+  assert.match(html, /id="newGameButton"[^>]*>Начать новую</);
+});
+
+test('unfinished matches are autosaved and can be resumed', () => {
+  const source = readFileSync(new URL('../src/native-game.js', import.meta.url), 'utf8');
+  const engine = readFileSync(new URL('../src/game-engine.js', import.meta.url), 'utf8');
+  assert.match(source, /SAVE_STORAGE_KEY = 'king-single-player-save'/);
+  assert.match(source, /function saveCurrentGame\(\)/);
+  assert.match(source, /function loadSavedGame\(\)/);
+  assert.match(source, /function continueSavedGame\(\)/);
+  assert.match(source, /removeSavedGame\(\)/);
+  assert.match(engine, /random\.getState/);
 });
 
 test('loading copy is only the word requested by the user', () => {
@@ -25,6 +41,10 @@ test('rules and adaptation credits are present without the removed executable pa
   const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
   assert.match(html, /id="rulesButton"/);
   assert.match(html, /id="aboutButton"/);
+  assert.match(html, /<h3>Сетевая игра<\/h3>/);
+  assert.match(html, /«ЖИВОЙ ИГРОК»/);
+  assert.match(html, /Пригласить в Telegram/);
+  assert.match(html, /Вернуться в сетевую игру/);
   assert.match(html, /Адаптацию для Telegram сделал канал/);
   assert.match(html, /https:\/\/t\.me\/oodalenka/);
   assert.doesNotMatch(html, /В этой версии запускается|KING\.EXE/);
@@ -75,13 +95,18 @@ test('partner choice, player turn and completed trick are explicit', () => {
 });
 
 test('the native port uses restrained PC Speaker-style Web Audio cues', () => {
+  const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
   const source = readFileSync(new URL('../src/native-game.js', import.meta.url), 'utf8');
+  assert.match(html, /id="soundButton"/);
+  assert.match(html, /aria-pressed="true">Звук: вкл/);
   assert.match(source, /AudioContext/);
   assert.match(source, /oscillator\.type = 'square'/);
   assert.match(source, /playSelectionSound/);
   assert.match(source, /playCardSound/);
   assert.match(source, /playTrickSound/);
   assert.match(source, /frequency: 100, duration: 100/);
+  assert.match(source, /SOUND_STORAGE_KEY = 'king-sound-enabled'/);
+  assert.match(source, /if \(!soundEnabled\) return/);
 });
 
 test('Cloudflare assets exclude emulator files and repository internals', () => {
@@ -104,12 +129,15 @@ test('Cloudflare assets exclude emulator files and repository internals', () => 
   assert.match(wrangler, /"not_found_handling": "none"/);
 });
 
-test('health reports the native single-player build', async () => {
+test('health reports the native mixed-mode build without infrastructure details', async () => {
   const response = await worker.fetch(new Request('https://example.com/api/health'), { ASSETS: {} });
   assert.equal(response.status, 200);
   const health = await response.json();
-  assert.equal(health.mode, 'single-player');
-  assert.equal(health.build, 'native-single-player-5');
+  assert.equal(health.mode, 'single-and-network');
+  assert.equal(health.build, 'native-network-1');
+  assert.equal(health.networkAvailable, false);
+  assert.equal('accountId' in health, false);
+  assert.equal('repository' in health, false);
   assert.equal(response.headers.get('cache-control'), 'no-store');
   assert.equal(response.headers.get('x-content-type-options'), 'nosniff');
 });
@@ -151,7 +179,12 @@ test('worker never serves repository and deployment internals through SPA fallba
   assert.equal(assetRequests, 0);
 });
 
-test('network room API is disabled', async () => {
-  const response = await worker.fetch(new Request('https://example.com/api/rooms', { method: 'POST' }), {});
-  assert.equal(response.status, 404);
+test('network room API rejects requests without verified Telegram data', async () => {
+  const response = await worker.fetch(new Request('https://example.com/api/rooms', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ displayName: 'Игрок', choices: [] }),
+  }), {});
+  assert.equal(response.status, 401);
+  assert.doesNotMatch(await response.text(), /stack|BOT_TOKEN|Cloudflare|GitHub/i);
 });

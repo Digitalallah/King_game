@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="#000000" />
     <title>Кинг</title>
-    <link rel="stylesheet" href="./src/styles.css?v=native-5" />
+    <link rel="stylesheet" href="./src/styles.css?v=native-8" />
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
   </head>
   <body>
@@ -20,6 +20,8 @@
             aria-label="Игровое поле. Нажимайте на персонажей и карты."
           ></canvas>
 
+          <div id="avatarLayer" class="avatar-layer" aria-hidden="true"></div>
+
           <p id="orientationHint" class="orientation-hint" aria-hidden="true">Поверните телефон горизонтально — так карты будут крупнее.</p>
 
           <div id="loadingOverlay" class="loading-overlay" role="status" aria-live="polite">
@@ -30,6 +32,16 @@
               <button id="retryButton" type="button" hidden>Повторить запуск</button>
             </div>
           </div>
+
+          <div id="startOverlay" class="start-overlay" hidden>
+            <div class="start-window" role="group" aria-label="Главное меню">
+              <strong>КИНГ</strong>
+              <span id="savedGameInfo">Сохранённой игры нет</span>
+              <button id="continueButton" type="button">Продолжить игру</button>
+              <button id="continueNetworkButton" type="button" hidden>Вернуться в сетевую игру</button>
+              <button id="newGameButton" type="button">Начать новую</button>
+            </div>
+          </div>
         </div>
       </section>
 
@@ -37,6 +49,7 @@
         <p id="gameHint">Загрузка</p>
         <div class="control-buttons">
           <button id="restartButton" type="button">Начать заново</button>
+          <button id="soundButton" type="button" aria-pressed="true">Звук: вкл</button>
           <button id="rulesButton" type="button">Правила</button>
           <button id="aboutButton" type="button">Об игре</button>
         </div>
@@ -67,7 +80,44 @@
         </ol>
         <p>После штрафной половины те же контракты играются «в плюс»: нужные карты и взятки уже надо брать. В контрактах «Черви», «Кинг» и «Ералаш» нельзя начинать взятку с червей, пока на руке есть другая масть.</p>
         <p>Очки суммируются во всех 14 контрактах. Побеждает игрок с наибольшим итоговым счётом; одинаковый лучший результат означает ничью.</p>
+        <h3>Сетевая игра</h3>
+        <ol>
+          <li>На экране выбора партнёров заполните три места. Обычный персонаж будет играть за компьютер, а плитка «ЖИВОЙ ИГРОК» оставит место для приглашённого человека. Можно выбрать от одного до трёх живых соперников, а остальные места отдать компьютеру.</li>
+          <li>Введите отображаемое имя, создайте комнату и отправьте ссылку кнопкой «Пригласить в Telegram». Одну ссылку можно отправить всем приглашённым игрокам.</li>
+          <li>Приглашённый открывает ссылку в Telegram, вводит своё имя и присоединяется к комнате. Его имя и аватар из Telegram появятся у создателя игры.</li>
+          <li>Когда все выбранные живые игроки подключатся, создатель комнаты нажимает «Начать игру». Компьютерные игроки подключаются автоматически.</li>
+          <li>У каждого участника его рука показана снизу. Дождитесь надписи «ВАШ ХОД»: первый клик или тап выделяет карту, второй кладёт её на стол. Ходы, карты, взятки и общий счёт одинаковы у всех игроков.</li>
+        </ol>
+        <p>Если вы закрыли игру или потеряли связь, снова откройте мини-приложение и выберите «Вернуться в сетевую игру». Подключение к незаконченной комнате восстановится автоматически.</p>
         <form method="dialog" class="dialog-actions"><button type="submit">Понятно</button></form>
+      </article>
+    </dialog>
+
+    <dialog id="networkDialog" class="info-dialog network-dialog" aria-labelledby="networkDialogTitle">
+      <article>
+        <header>
+          <h2 id="networkDialogTitle">Сетевая игра</h2>
+          <button id="networkCloseButton" type="button" aria-label="Закрыть комнату">×</button>
+        </header>
+        <p id="networkLead">Выберите имя, которое увидят остальные игроки.</p>
+        <label class="network-name-field">
+          <span>Ваше имя</span>
+          <input id="networkNameInput" type="text" maxlength="24" autocomplete="nickname" />
+        </label>
+        <button id="networkConnectButton" type="button">Создать комнату</button>
+        <p id="networkStatus" class="network-status" role="status" aria-live="polite"></p>
+        <section id="networkLobby" class="network-lobby" hidden aria-label="Состав комнаты">
+          <div class="network-room-line">
+            <strong id="networkRoomLabel">Комната</strong>
+            <span id="networkRoomCode"></span>
+          </div>
+          <div id="networkPlayers" class="network-players"></div>
+          <div class="network-actions">
+            <button id="networkInviteButton" type="button">Пригласить в Telegram</button>
+            <button id="networkCopyButton" type="button">Скопировать ссылку</button>
+            <button id="networkStartButton" type="button" disabled>Начать игру</button>
+          </div>
+        </section>
       </article>
     </dialog>
 
@@ -84,6 +134,6 @@
       </article>
     </dialog>
 
-    <script type="module" src="./src/native-game.js?v=native-5"></script>
+    <script type="module" src="./src/native-game.js?v=native-8"></script>
   </body>
 </html>

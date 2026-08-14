@@ -101,12 +101,14 @@ export function sortCards(cards) {
 export function createSeededRandom(seed = 0x19930822) {
   let state = Number(seed) >>> 0;
   if (state === 0) state = 0x6d2b79f5;
-  return () => {
+  const random = () => {
     state ^= state << 13;
     state ^= state >>> 17;
     state ^= state << 5;
     return (state >>> 0) / 0x1_0000_0000;
   };
+  random.getState = () => state >>> 0;
+  return random;
 }
 
 export function shuffleDeck(deck, random = Math.random) {

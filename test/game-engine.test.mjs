@@ -32,6 +32,15 @@ test('a seeded shuffle deals eight cards to every player', () => {
   assert.equal(new Set(hands.flat().map(card => card.id)).size, 32);
 });
 
+test('seeded random state can resume the exact sequence', () => {
+  const first = createSeededRandom(50057);
+  first();
+  first();
+  const resumed = createSeededRandom(first.getState());
+  assert.equal(resumed(), first());
+  assert.equal(resumed(), first());
+});
+
 test('following the leading suit is mandatory', () => {
   const deck = createDeck();
   const hand = [deck.find(card => card.id === 'clubs-7'), deck.find(card => card.id === 'hearts-14')];

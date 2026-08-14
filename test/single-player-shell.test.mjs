@@ -41,6 +41,10 @@ test('rules and adaptation credits are present without the removed executable pa
   const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
   assert.match(html, /id="rulesButton"/);
   assert.match(html, /id="aboutButton"/);
+  assert.match(html, /<h3>Сетевая игра<\/h3>/);
+  assert.match(html, /«ЖИВОЙ ИГРОК»/);
+  assert.match(html, /Пригласить в Telegram/);
+  assert.match(html, /Вернуться в сетевую игру/);
   assert.match(html, /Адаптацию для Telegram сделал канал/);
   assert.match(html, /https:\/\/t\.me\/oodalenka/);
   assert.doesNotMatch(html, /В этой версии запускается|KING\.EXE/);

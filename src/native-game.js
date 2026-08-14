@@ -23,7 +23,7 @@ import {
   KingRoomClient,
   defaultPlayerName,
   parseRoomInvite,
-} from './network-client.js?v=native-8';
+} from './network-client.js?v=native-9';
 
 const tg = window.Telegram?.WebApp;
 

@@ -67,7 +67,9 @@ export class KingRoomClient {
   } = {}) {
     this.telegram = telegram;
     this.baseUrl = baseUrl;
-    this.fetchImpl = fetchImpl;
+    this.fetchImpl = typeof fetchImpl === 'function'
+      ? fetchImpl.bind(globalThis.window ?? globalThis)
+      : null;
     this.WebSocketImpl = WebSocketImpl;
     this.storage = safeStorage(storage);
     this.config = null;
@@ -93,6 +95,7 @@ export class KingRoomClient {
 
   async loadConfig() {
     if (this.config) return this.config;
+    if (!this.fetchImpl) throw new Error('Браузер не поддерживает сетевые запросы.');
     const response = await this.fetchImpl(new URL('/api/config', this.baseUrl), {
       headers: { Accept: 'application/json' },
       credentials: 'same-origin',

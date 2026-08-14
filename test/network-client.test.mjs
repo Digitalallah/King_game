@@ -32,6 +32,28 @@ test('the invite uses Telegram direct-link format and the requested message', ()
   assert.equal(INVITE_TEXT, 'Привет, я решил поиграть в игру Кинг, присоединяйся!');
 });
 
+test('the browser fetch keeps its Window receiver in Telegram WebView', async () => {
+  const receiver = globalThis.window ?? globalThis;
+  function browserFetch(input) {
+    assert.equal(this, receiver);
+    assert.equal(new URL(String(input)).pathname, '/api/config');
+    return Promise.resolve(Response.json({
+      ok: true,
+      appUrl: 'https://t.me/KingIgraBot/King',
+      devAuth: false,
+    }));
+  }
+
+  const client = new KingRoomClient({
+    baseUrl: 'https://game.example',
+    fetchImpl: browserFetch,
+    WebSocketImpl: class {},
+    storage: null,
+  });
+
+  assert.equal((await client.loadConfig()).ok, true);
+});
+
 test('Telegram initData is posted for verification but never placed in the WebSocket URL', async () => {
   const requests = [];
   const fetchImpl = async (input, init = {}) => {

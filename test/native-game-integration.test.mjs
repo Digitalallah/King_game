@@ -19,6 +19,9 @@ class MockElement {
     this.disabled = false;
     this.textContent = '';
     this.style = {};
+    this.dataset = {};
+    this.value = '';
+    this.children = [];
     this.href = 'https://t.me/oodalenka';
     this.listeners = new Map();
     this.attributes = new Map();
@@ -43,6 +46,22 @@ class MockElement {
   showModal() {
     this.open = true;
   }
+
+  close() {
+    this.open = false;
+    this.emit('close');
+  }
+
+  append(...children) {
+    this.children.push(...children);
+  }
+
+  replaceChildren(...children) {
+    this.children = [...children];
+  }
+
+  replaceWith() {}
+  remove() {}
 
   setAttribute(name, value) {
     this.attributes.set(name, String(value));
@@ -101,6 +120,7 @@ test('native UI handles mobile taps and completes all fourteen contracts', { tim
 
   const selectorIds = {
     '#gameCanvas': 'gameCanvas',
+    '#avatarLayer': 'avatarLayer',
     '#orientationHint': 'orientationHint',
     '#loadingOverlay': 'loadingOverlay',
     '#loadingText': 'loadingText',
@@ -109,6 +129,7 @@ test('native UI handles mobile taps and completes all fourteen contracts', { tim
     '#startOverlay': 'startOverlay',
     '#savedGameInfo': 'savedGameInfo',
     '#continueButton': 'continueButton',
+    '#continueNetworkButton': 'continueNetworkButton',
     '#newGameButton': 'newGameButton',
     '#restartButton': 'restartButton',
     '#soundButton': 'soundButton',
@@ -116,6 +137,19 @@ test('native UI handles mobile taps and completes all fourteen contracts', { tim
     '#aboutButton': 'aboutButton',
     '#rulesDialog': 'rulesDialog',
     '#aboutDialog': 'aboutDialog',
+    '#networkDialog': 'networkDialog',
+    '#networkDialogTitle': 'networkDialogTitle',
+    '#networkLead': 'networkLead',
+    '#networkNameInput': 'networkNameInput',
+    '#networkConnectButton': 'networkConnectButton',
+    '#networkCloseButton': 'networkCloseButton',
+    '#networkStatus': 'networkStatus',
+    '#networkLobby': 'networkLobby',
+    '#networkRoomCode': 'networkRoomCode',
+    '#networkPlayers': 'networkPlayers',
+    '#networkInviteButton': 'networkInviteButton',
+    '#networkCopyButton': 'networkCopyButton',
+    '#networkStartButton': 'networkStartButton',
     '#aboutDialog a[href^="https://t.me/"]': 'aboutLink',
     '#gameHint': 'gameHint',
   };
@@ -131,7 +165,7 @@ test('native UI handles mobile taps and completes all fourteen contracts', { tim
   let fullscreenRequests = 0;
   const storedValues = new Map();
   globalThis.ImageData = MockImageData;
-  globalThis.location = { search: '?seed=50057&speed=0.01' };
+  globalThis.location = { search: '?seed=50057&speed=0.01', origin: 'https://example.com' };
   Object.defineProperty(globalThis, 'navigator', {
     configurable: true,
     value: { maxTouchPoints: 1 },
@@ -173,6 +207,9 @@ test('native UI handles mobile taps and completes all fourteen contracts', { tim
     documentElement: {},
     querySelector(selector) {
       return element(selectorIds[selector]);
+    },
+    createElement(tagName) {
+      return new MockElement(tagName);
     },
     addEventListener(type, listener) {
       documentListeners.set(type, listener);

@@ -4,12 +4,15 @@ import test from 'node:test';
 
 import worker from '../worker/index.js';
 
-test('the active page runs the native canvas game and no network lobby', () => {
+test('the active page keeps the native canvas game and adds its network lobby', () => {
   const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
   assert.match(html, /id="gameCanvas"/);
   assert.match(html, /src="\.\/src\/native-game\.js/);
   assert.doesNotMatch(html, /inputOverlay|single-player\.js|emulators\.js/);
-  assert.doesNotMatch(html, /networkDialog|Создать игру|Пригласить друга/);
+  assert.match(html, /id="networkDialog"/);
+  assert.match(html, /id="networkNameInput"/);
+  assert.match(html, /id="networkInviteButton"[^>]*>Пригласить в Telegram</);
+  assert.match(html, /id="networkStartButton"[^>]*disabled>Начать игру</);
   assert.match(html, /id="continueButton"[^>]*>Продолжить игру</);
   assert.match(html, /id="newGameButton"[^>]*>Начать новую</);
 });
@@ -122,12 +125,15 @@ test('Cloudflare assets exclude emulator files and repository internals', () => 
   assert.match(wrangler, /"not_found_handling": "none"/);
 });
 
-test('health reports the native single-player build', async () => {
+test('health reports the native mixed-mode build without infrastructure details', async () => {
   const response = await worker.fetch(new Request('https://example.com/api/health'), { ASSETS: {} });
   assert.equal(response.status, 200);
   const health = await response.json();
-  assert.equal(health.mode, 'single-player');
-  assert.equal(health.build, 'native-single-player-7');
+  assert.equal(health.mode, 'single-and-network');
+  assert.equal(health.build, 'native-network-1');
+  assert.equal(health.networkAvailable, false);
+  assert.equal('accountId' in health, false);
+  assert.equal('repository' in health, false);
   assert.equal(response.headers.get('cache-control'), 'no-store');
   assert.equal(response.headers.get('x-content-type-options'), 'nosniff');
 });
@@ -169,7 +175,12 @@ test('worker never serves repository and deployment internals through SPA fallba
   assert.equal(assetRequests, 0);
 });
 
-test('network room API is disabled', async () => {
-  const response = await worker.fetch(new Request('https://example.com/api/rooms', { method: 'POST' }), {});
-  assert.equal(response.status, 404);
+test('network room API rejects requests without verified Telegram data', async () => {
+  const response = await worker.fetch(new Request('https://example.com/api/rooms', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ displayName: 'Игрок', choices: [] }),
+  }), {});
+  assert.equal(response.status, 401);
+  assert.doesNotMatch(await response.text(), /stack|BOT_TOKEN|Cloudflare|GitHub/i);
 });

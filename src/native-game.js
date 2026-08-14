@@ -12,18 +12,24 @@ import {
   shuffleDeck,
   trickWinner,
   updateCardTapSelection,
-} from './game-engine.js?v=native-7';
+} from './game-engine.js?v=native-8';
 import {
   IndexedRenderer,
   loadKingAssets,
   SCREEN_HEIGHT,
   SCREEN_WIDTH,
-} from './native-assets.js?v=native-7';
+} from './native-assets.js?v=native-8';
+import {
+  KingRoomClient,
+  defaultPlayerName,
+  parseRoomInvite,
+} from './network-client.js?v=native-8';
 
 const tg = window.Telegram?.WebApp;
 
 const el = {
   canvas: document.querySelector('#gameCanvas'),
+  avatarLayer: document.querySelector('#avatarLayer'),
   orientationHint: document.querySelector('#orientationHint'),
   loadingOverlay: document.querySelector('#loadingOverlay'),
   loadingText: document.querySelector('#loadingText'),
@@ -32,6 +38,7 @@ const el = {
   startOverlay: document.querySelector('#startOverlay'),
   savedGameInfo: document.querySelector('#savedGameInfo'),
   continueButton: document.querySelector('#continueButton'),
+  continueNetworkButton: document.querySelector('#continueNetworkButton'),
   newGameButton: document.querySelector('#newGameButton'),
   restartButton: document.querySelector('#restartButton'),
   soundButton: document.querySelector('#soundButton'),
@@ -39,6 +46,19 @@ const el = {
   aboutButton: document.querySelector('#aboutButton'),
   rulesDialog: document.querySelector('#rulesDialog'),
   aboutDialog: document.querySelector('#aboutDialog'),
+  networkDialog: document.querySelector('#networkDialog'),
+  networkDialogTitle: document.querySelector('#networkDialogTitle'),
+  networkLead: document.querySelector('#networkLead'),
+  networkNameInput: document.querySelector('#networkNameInput'),
+  networkConnectButton: document.querySelector('#networkConnectButton'),
+  networkCloseButton: document.querySelector('#networkCloseButton'),
+  networkStatus: document.querySelector('#networkStatus'),
+  networkLobby: document.querySelector('#networkLobby'),
+  networkRoomCode: document.querySelector('#networkRoomCode'),
+  networkPlayers: document.querySelector('#networkPlayers'),
+  networkInviteButton: document.querySelector('#networkInviteButton'),
+  networkCopyButton: document.querySelector('#networkCopyButton'),
+  networkStartButton: document.querySelector('#networkStartButton'),
   aboutLink: document.querySelector('#aboutDialog a[href^="https://t.me/"]'),
   hint: document.querySelector('#gameHint'),
 };
@@ -74,6 +94,7 @@ const PARTNER_DESCRIPTIONS = [
   ['ОНА ИГРАЕТ', 'ОТЛИЧНО'],
   ['ОН ВСЕГДА', 'МУХЛЮЕТ'],
 ];
+const LIVE_PLAYER_TILE = { x: 14, y: 107, width: 116, height: 114 };
 const CARD_BY_ID = new Map(createDeck().map(card => [card.id, card]));
 const requestedSpeed = Number(new URLSearchParams(location.search).get('speed'));
 const TIME_SCALE = Number.isFinite(requestedSpeed) && requestedSpeed > 0
@@ -83,6 +104,7 @@ const TIME_SCALE = Number.isFinite(requestedSpeed) && requestedSpeed > 0
 let renderer = null;
 let screen = 'loading';
 let selectedPartnerIds = [];
+let selectedSeatChoices = [];
 let game = null;
 let selectedCardId = null;
 let inputLocked = true;
@@ -94,6 +116,17 @@ let landscapeFullscreenRequested = false;
 let audioContext = null;
 let audioMasterGain = null;
 let soundEnabled = readSoundPreference();
+let networkMode = false;
+let networkRoom = null;
+let networkSnapshot = null;
+let networkAdvanceTimer = null;
+let networkCommandPending = false;
+let networkSetupRole = 'host';
+let networkSetupRoomId = '';
+let lastNetworkStatus = '';
+let lastNetworkTrickLength = 0;
+const pendingInviteRoomId = parseRoomInvite({ telegram: tg, search: location.search });
+const networkClient = new KingRoomClient({ telegram: tg });
 const landscapeMedia = window.matchMedia?.('(orientation: landscape)') ?? null;
 const coarsePointerMedia = window.matchMedia?.('(pointer: coarse)') ?? null;
 
@@ -348,6 +381,8 @@ function loadSavedGame() {
 
 function saveCurrentGame() {
   if (
+    networkMode
+    ||
     screen !== 'table'
     || !game
     || !['playing', 'trick-await', 'contract-result'].includes(game.status)
@@ -493,9 +528,31 @@ function drawSelectedPartner(character, order) {
   printCenteredShadowed(description[1], x + 40, y + 70, 14, 8, 6);
 }
 
+function drawLivePlayerTile() {
+  const { x, y, width, height } = LIVE_PLAYER_TILE;
+  const selectedOrders = selectedSeatChoices
+    .map((choice, index) => (choice.type === 'human' ? index + 1 : null))
+    .filter(Boolean);
+  renderer.fillRect(x, y, width, height, selectedOrders.length ? 1 : 2);
+  renderer.strokeRect(x, y, width, height, selectedOrders.length ? 14 : 15, 2);
+
+  renderer.fillRect(x + 43, y + 15, 30, 28, 14);
+  renderer.fillRect(x + 36, y + 43, 44, 38, 14);
+  renderer.fillRect(x + 48, y + 22, 5, 5, 0);
+  renderer.fillRect(x + 63, y + 22, 5, 5, 0);
+  renderer.fillRect(x + 52, y + 33, 13, 3, 0);
+  printCenteredShadowed('ЖИВОЙ', x + width / 2, y + 84, 15, 8, 7);
+  printCenteredShadowed('ИГРОК', x + width / 2, y + 96, 15, 8, 7);
+  if (selectedOrders.length) {
+    const label = `МЕСТА: ${selectedOrders.join(',')}`;
+    printCenteredShadowed(label, x + width / 2, y + 2, 14, 8, 6);
+  }
+}
+
 function renderPartnerPicker() {
   renderer.clear(2);
   drawSelectionBorder();
+  drawLivePlayerTile();
   renderer.drawSprite(52, 160, 15);
   renderer.drawSprite(53, 160, 119);
   renderer.drawSprite(54, 160, 223);
@@ -503,20 +560,32 @@ function renderPartnerPicker() {
   for (const character of CHARACTERS) {
     const column = character.id % 4;
     const row = Math.floor(character.id / 4);
-    const selectedOrder = selectedPartnerIds.indexOf(character.id);
+    const selectedOrder = selectedSeatChoices.findIndex(choice => (
+      choice.type === 'bot' && choice.characterId === character.id
+    ));
     if (selectedOrder >= 0) drawSelectedPartner(character, selectedOrder);
     else printCenteredShadowed(character.name, 200 + column * 80, 97 + row * 104, 15, 14, 7);
   }
 
-  const prompt = selectedPartnerIds.length >= 3
+  const prompt = selectedSeatChoices.length >= 3
     ? 'Партнёры выбраны...'
-    : `Выберите ${selectedPartnerIds.length + 1}-го партнера...`;
+    : `Выберите ${selectedSeatChoices.length + 1}-го партнера...`;
   renderer.printCentered(prompt, 320, 333, 14, 14, 7);
   renderer.present();
 }
 
 function drawCharacter(character, x, y) {
   renderer.drawSpriteRegion(character.spriteId, character.cropX, 0, 80, 88, x, y, 2);
+}
+
+function drawHumanPlaceholder(x, y) {
+  renderer.fillRect(x, y, 80, 88, 2);
+  renderer.strokeRect(x, y, 80, 88, 0, 2);
+  renderer.fillRect(x + 25, y + 8, 30, 29, 14);
+  renderer.fillRect(x + 16, y + 37, 48, 36, 14);
+  renderer.fillRect(x + 31, y + 18, 5, 5, 0);
+  renderer.fillRect(x + 45, y + 18, 5, 5, 0);
+  renderer.fillRect(x + 34, y + 29, 13, 3, 0);
 }
 
 function drawBackFan(count, x, y, maxWidth = 136) {
@@ -526,9 +595,28 @@ function drawBackFan(count, x, y, maxWidth = 136) {
 }
 
 function drawOpponentSeat(seat, character, x, y, backsX, backsY) {
-  drawCharacter(character, x, y);
-  printCenteredShadowed(character.name, x + 40, y + 74, 15, 14, 7);
+  const record = game.seatRecords?.[seat];
+  if (record?.type === 'human') drawHumanPlaceholder(x, y);
+  else drawCharacter(character, x, y);
+  printCenteredShadowed(compactName(record?.name || character?.name || 'Игрок'), x + 40, y + 74, 15, 14, 7);
   drawBackFan(game.hands[seat].length, backsX, backsY);
+}
+
+function syncAvatarLayer() {
+  if (!el.avatarLayer?.replaceChildren) return;
+  el.avatarLayer.replaceChildren();
+  if (!networkMode || screen !== 'table' || !game?.seatRecords) return;
+  for (let seat = 1; seat <= 3; seat += 1) {
+    const record = game.seatRecords[seat];
+    if (record?.type !== 'human' || !record.photoUrl) continue;
+    const image = document.createElement('img');
+    image.className = `table-avatar seat-${seat}`;
+    image.src = record.photoUrl;
+    image.alt = '';
+    image.referrerPolicy = 'no-referrer';
+    image.addEventListener('error', () => image.remove());
+    el.avatarLayer.append(image);
+  }
 }
 
 function drawTableSurface() {
@@ -620,7 +708,7 @@ function drawPlayerSeatLabel() {
     && game.currentSeat === PLAYER_SEAT
     && !inputLocked;
   if (!isPlayerTurn) {
-    renderer.printCentered('Товарищ', 320, 251, 15, 14, 8);
+    renderer.printCentered((game.playerNames[0] || 'Товарищ').slice(0, 18), 320, 251, 15, 14, 8);
     return;
   }
 
@@ -640,7 +728,8 @@ function drawThinkingBubble() {
   if (!box) return;
   renderer.fillRect(box.x, box.y, 93, 18, 7);
   renderer.strokeRect(box.x, box.y, 93, 18, 1, 1);
-  renderer.print('Думаю...', box.x + 7, box.y + 4, 0, 8, 7);
+  const thinkingText = game.seatRecords?.[game.currentSeat]?.type === 'human' ? 'Ждём...' : 'Думаю...';
+  renderer.print(thinkingText, box.x + 7, box.y + 4, 0, 8, 7);
 }
 
 function drawResultOverlay() {
@@ -700,6 +789,7 @@ function renderGameTable() {
   drawThinkingBubble();
   drawResultOverlay();
   renderer.present();
+  syncAvatarLayer();
 }
 
 function render() {
@@ -723,33 +813,64 @@ function characterAtPoint(x, y) {
   return CHARACTERS[row * 4 + column] ?? null;
 }
 
+function livePlayerAtPoint(x, y) {
+  return x >= LIVE_PLAYER_TILE.x
+    && x < LIVE_PLAYER_TILE.x + LIVE_PLAYER_TILE.width
+    && y >= LIVE_PLAYER_TILE.y
+    && y < LIVE_PLAYER_TILE.y + LIVE_PLAYER_TILE.height;
+}
+
+function finishPartnerSelection() {
+  inputLocked = true;
+  const token = runToken;
+  const humanCount = selectedSeatChoices.filter(choice => choice.type === 'human').length;
+  if (humanCount > 0) {
+    setHint('Состав выбран. Создаём сетевую комнату…');
+    void gameDelay(280, token).then(active => {
+      if (active) openNetworkSetup({ role: 'host' });
+    });
+    return;
+  }
+
+  selectedPartnerIds = selectedSeatChoices.map(choice => choice.characterId);
+  setHint('Партнёры выбраны. Начинаем раздачу…');
+  void gameDelay(650, token).then(active => {
+    if (active) startMatch();
+  });
+}
+
 function handlePartnerTap(x, y) {
+  if (livePlayerAtPoint(x, y)) {
+    selectedSeatChoices.push({ type: 'human' });
+    tg?.HapticFeedback?.selectionChanged?.();
+    playSelectionSound();
+    renderPartnerPicker();
+    if (selectedSeatChoices.length >= 3) finishPartnerSelection();
+    else setHint(`Живой игрок выбран. Осталось выбрать: ${3 - selectedSeatChoices.length}.`);
+    return;
+  }
+
   const character = characterAtPoint(x, y);
   if (!character) {
     setHint('Коснитесь изображения нужного персонажа.');
     return;
   }
-  if (selectedPartnerIds.includes(character.id)) {
+  if (selectedSeatChoices.some(choice => choice.type === 'bot' && choice.characterId === character.id)) {
     setHint('Этот партнёр уже выбран. Коснитесь другого персонажа.');
     return;
   }
 
   selectedPartnerIds.push(character.id);
+  selectedSeatChoices.push({ type: 'bot', characterId: character.id });
   tg?.HapticFeedback?.selectionChanged?.();
   playSelectionSound();
   renderPartnerPicker();
 
-  if (selectedPartnerIds.length < 3) {
-    setHint(`${character.name} выбран. Осталось выбрать: ${3 - selectedPartnerIds.length}.`);
+  if (selectedSeatChoices.length < 3) {
+    setHint(`${character.name} выбран. Осталось выбрать: ${3 - selectedSeatChoices.length}.`);
     return;
   }
-
-  setHint('Партнёры выбраны. Начинаем раздачу…');
-  inputLocked = true;
-  const token = runToken;
-  void gameDelay(650, token).then(active => {
-    if (active) startMatch();
-  });
+  finishPartnerSelection();
 }
 
 function cardAtPoint(x, y) {
@@ -791,7 +912,9 @@ function handleCardTap(x, y) {
     return;
   }
 
-  const legal = legalCards(game.hands[PLAYER_SEAT], game.trick, CONTRACTS[game.contractIndex]);
+  const legal = networkMode
+    ? game.hands[PLAYER_SEAT].filter(candidate => game.legalCardIds?.includes(candidate.id))
+    : legalCards(game.hands[PLAYER_SEAT], game.trick, CONTRACTS[game.contractIndex]);
   if (!legal.some(candidate => candidate.id === card.id)) {
     selectedCardId = card.id;
     render();
@@ -803,6 +926,14 @@ function handleCardTap(x, y) {
   selectedCardId = null;
   inputLocked = true;
   tg?.HapticFeedback?.impactOccurred?.('light');
+  if (networkMode) {
+    networkCommandPending = true;
+    if (!networkClient.playCard(card.id)) {
+      networkCommandPending = false;
+      inputLocked = false;
+    }
+    return;
+  }
   void playCard(PLAYER_SEAT, card, runToken);
 }
 
@@ -847,6 +978,17 @@ async function continueCurrentTurn(token, extraDelay = 0) {
 
 async function collectCompletedTrick(token) {
   if (token !== runToken || game.status !== 'trick-await') return;
+  if (networkMode) {
+    if (networkCommandPending) return;
+    networkCommandPending = true;
+    inputLocked = true;
+    setHint('Собираем взятку…');
+    if (!networkClient.collectTrick()) {
+      networkCommandPending = false;
+      inputLocked = false;
+    }
+    return;
+  }
   game.status = 'trick-collecting';
   inputLocked = true;
   setHint('Собираем взятку…');
@@ -946,7 +1088,276 @@ function startContract(contractIndex) {
   void continueCurrentTurn(token, 720);
 }
 
+function visualSeat(canonicalSeat, localSeat) {
+  return (canonicalSeat - localSeat + 4) % 4;
+}
+
+function rotateSeats(values, localSeat, fallback = null) {
+  const rotated = [fallback, fallback, fallback, fallback];
+  for (let canonicalSeat = 0; canonicalSeat < 4; canonicalSeat += 1) {
+    rotated[visualSeat(canonicalSeat, localSeat)] = values?.[canonicalSeat] ?? fallback;
+  }
+  return rotated;
+}
+
+function compactName(value, fallback = 'Игрок') {
+  const name = String(value || fallback).trim() || fallback;
+  return name.length > 12 ? `${name.slice(0, 11)}…` : name;
+}
+
+function buildNetworkTableGame(snapshot, room) {
+  const localSeat = room.localSeat;
+  const seatRecords = rotateSeats(room.seats, localSeat).map((record, seat) => ({
+    ...record,
+    seat,
+    name: String(record?.name || (record?.type === 'bot' ? 'Компьютер' : 'Игрок')).slice(0, 24),
+  }));
+  const counts = rotateSeats(snapshot.handCounts, localSeat, 0);
+  const hands = counts.map(count => Array.from({ length: Number(count) || 0 }, () => null));
+  hands[0] = snapshot.handIds.map(cardId => CARD_BY_ID.get(cardId)).filter(Boolean);
+  const trick = snapshot.trick.map(entry => ({
+    seat: visualSeat(entry.seat, localSeat),
+    card: CARD_BY_ID.get(entry.cardId),
+  })).filter(entry => entry.card);
+  const characters = seatRecords.slice(1).map(record => (
+    record.type === 'bot' ? CHARACTERS[record.characterId] : null
+  ));
+  return {
+    network: true,
+    characters,
+    seatRecords,
+    playerNames: seatRecords.map(record => record.name),
+    scores: rotateSeats(snapshot.scores, localSeat, 0),
+    dealScores: rotateSeats(snapshot.dealScores, localSeat, 0),
+    hands,
+    trick,
+    trickWinnerSeat: snapshot.trickWinnerSeat === null
+      ? null
+      : visualSeat(snapshot.trickWinnerSeat, localSeat),
+    trickNumber: snapshot.trickNumber,
+    currentSeat: visualSeat(snapshot.currentSeat, localSeat),
+    contractIndex: snapshot.contractIndex,
+    status: snapshot.status,
+    winners: snapshot.winners.map(seat => visualSeat(seat, localSeat)),
+    legalCardIds: [...snapshot.legalCardIds],
+    serverMessage: snapshot.message,
+  };
+}
+
+function scheduleNetworkAdvance(snapshot) {
+  clearTimeout(networkAdvanceTimer);
+  networkAdvanceTimer = null;
+  if (!Number.isFinite(snapshot?.nextActionAt) || !Number.isFinite(snapshot?.serverNow)) return;
+  const waitMs = Math.max(35, snapshot.nextActionAt - snapshot.serverNow + 35);
+  networkAdvanceTimer = setTimeout(() => networkClient.advance(), waitMs);
+}
+
+function describeNetworkTurn() {
+  if (!game || !networkRoom) return;
+  const disconnected = game.seatRecords.find((record, seat) => (
+    seat > 0 && record.type === 'human' && !record.connected
+  ));
+  if (disconnected) {
+    setHint(`${disconnected.name} потерял связь. Партия сохранена, ждём возврата.`);
+    return;
+  }
+
+  if (game.status === 'playing' && game.currentSeat === PLAYER_SEAT) {
+    setHint(playerHelpText());
+  } else if (game.status === 'playing') {
+    const record = game.seatRecords[game.currentSeat];
+    setHint(record.type === 'bot' ? `${record.name} думает…` : `Ходит ${record.name}…`);
+  } else if (game.status === 'trick-await') {
+    const winner = game.playerNames[game.trickWinnerSeat ?? game.currentSeat];
+    setHint(`${winner} берёт взятку. Нажмите в любую часть экрана.`);
+  } else if (game.status === 'trick-collecting') {
+    setHint('Взятка уходит к победителю…');
+  } else if (game.status === 'contract-result') {
+    setHint('Раздача окончена. Следующая начнётся через несколько секунд.');
+  } else if (game.status === 'game-over') {
+    const { winningScore, winnerSeats } = matchResult(game.scores);
+    const winners = winnerSeats.map(seat => game.playerNames[seat]).join(', ');
+    setHint(`${winnerSeats.length === 1 ? 'Победитель' : 'Ничья'}: ${winners}. Лучший счёт: ${formatScore(winningScore)}.`);
+  }
+}
+
+function applyNetworkGame(snapshot) {
+  if (!networkRoom || !Number.isInteger(networkRoom.localSeat) || networkRoom.localSeat < 0) return;
+  const previousStatus = lastNetworkStatus;
+  const previousTrickLength = lastNetworkTrickLength;
+  networkSnapshot = snapshot;
+  networkMode = true;
+  el.restartButton.textContent = 'Выйти в меню';
+  networkCommandPending = false;
+  game = buildNetworkTableGame(snapshot, networkRoom);
+  screen = 'table';
+  selectedCardId = game.hands[0].some(card => card.id === selectedCardId) ? selectedCardId : null;
+  inputLocked = !(
+    game.status === 'trick-await'
+    || (game.status === 'playing' && game.currentSeat === PLAYER_SEAT && game.legalCardIds.length > 0)
+  );
+  el.loadingOverlay.hidden = true;
+  el.startOverlay.hidden = true;
+  if (el.networkDialog.open) el.networkDialog.close();
+
+  if (snapshot.trick.length > previousTrickLength) playCardSound();
+  if (snapshot.status === 'trick-collecting' && previousStatus !== 'trick-collecting') playTrickSound();
+  if (
+    snapshot.status === 'playing'
+    && game.currentSeat === PLAYER_SEAT
+    && !(previousStatus === 'playing' && previousTrickLength === snapshot.trick.length)
+  ) tg?.HapticFeedback?.notificationOccurred?.('success');
+  lastNetworkStatus = snapshot.status;
+  lastNetworkTrickLength = snapshot.trick.length;
+  if (snapshot.status === 'game-over') networkClient.clearActiveRoom();
+  describeNetworkTurn();
+  render();
+  scheduleNetworkAdvance(snapshot);
+}
+
+function setNetworkStatus(text, isError = false) {
+  el.networkStatus.textContent = text;
+  el.networkStatus.dataset.error = String(isError);
+}
+
+function makeLobbyAvatar(record) {
+  if (record.photoUrl) {
+    const image = document.createElement('img');
+    image.src = record.photoUrl;
+    image.alt = '';
+    image.referrerPolicy = 'no-referrer';
+    image.addEventListener('error', () => {
+      const fallback = document.createElement('span');
+      fallback.className = 'network-player-avatar';
+      fallback.textContent = '☺';
+      image.replaceWith(fallback);
+    });
+    return image;
+  }
+  const fallback = document.createElement('span');
+  fallback.className = 'network-player-avatar';
+  fallback.textContent = record.type === 'bot' ? 'ИИ' : record.type === 'pending' ? '?' : '☺';
+  return fallback;
+}
+
+function renderNetworkLobby() {
+  const room = networkRoom;
+  if (!room) return;
+  el.networkLobby.hidden = false;
+  el.networkConnectButton.hidden = true;
+  el.networkRoomCode.textContent = room.roomId;
+  el.networkPlayers.replaceChildren();
+
+  for (const record of room.seats) {
+    const item = document.createElement('div');
+    const ready = record.type === 'bot' || (record.type === 'human' && record.connected);
+    item.className = `network-player ${ready ? 'is-ready' : 'is-waiting'}`;
+    item.append(makeLobbyAvatar(record));
+    const name = document.createElement('strong');
+    name.textContent = record.type === 'pending' ? 'Ожидаем игрока' : record.name;
+    item.append(name);
+    const status = document.createElement('small');
+    status.textContent = record.type === 'bot'
+      ? 'Компьютер'
+      : record.type === 'pending'
+        ? 'Ещё не подключился'
+        : record.connected
+          ? (record.host ? 'Создатель · в комнате' : 'Подключился')
+          : 'Связь потеряна';
+    item.append(status);
+    el.networkPlayers.append(item);
+  }
+
+  const pending = room.seats.filter(record => record.type === 'pending').length;
+  const disconnected = room.seats.filter(record => record.type === 'human' && !record.connected).length;
+  el.networkStartButton.hidden = !room.isHost;
+  el.networkStartButton.disabled = !room.canStart;
+  el.networkInviteButton.hidden = pending === 0;
+  el.networkCopyButton.hidden = pending === 0;
+  if (room.status !== 'lobby') setNetworkStatus('Партия уже началась. Возвращаемся за стол…');
+  else if (room.canStart) setNetworkStatus('Все приглашённые подключились. Можно начинать.');
+  else if (pending > 0) setNetworkStatus(`Ждём игроков: ${pending}. Отправьте им одну ссылку на комнату.`);
+  else if (disconnected > 0) setNetworkStatus('Один из игроков потерял связь. Ждём его возврата.');
+  else setNetworkStatus('Вы в комнате. Игру начнёт её создатель.');
+}
+
+function applyNetworkRoom(room) {
+  networkRoom = room;
+  networkSetupRole = room.isHost ? 'host' : 'guest';
+  renderNetworkLobby();
+  if (networkSnapshot && screen === 'table') applyNetworkGame(networkSnapshot);
+}
+
+function openNetworkSetup({ role, roomId = '', displayName = '' }) {
+  clearTimeout(networkAdvanceTimer);
+  networkAdvanceTimer = null;
+  networkClient.disconnect({ forget: false });
+  networkRoom = null;
+  networkSnapshot = null;
+  networkCommandPending = false;
+  networkSetupRole = role;
+  networkSetupRoomId = roomId;
+  if (role !== 'host') {
+    screen = 'network-lobby';
+    inputLocked = true;
+    renderer?.clear(2);
+    renderer?.present();
+  }
+  el.networkDialogTitle.textContent = role === 'host' ? 'Создать комнату' : 'Войти в комнату';
+  el.networkLead.textContent = role === 'host'
+    ? 'Введите имя. Затем пригласите выбранное число живых оппонентов.'
+    : 'Введите имя и присоединитесь к игре.';
+  el.networkNameInput.value = displayName || defaultPlayerName(tg);
+  el.networkConnectButton.textContent = role === 'host' ? 'Создать комнату' : 'Присоединиться';
+  el.networkConnectButton.hidden = false;
+  el.networkConnectButton.disabled = false;
+  el.networkLobby.hidden = true;
+  setNetworkStatus('');
+  if (!el.networkDialog.open) el.networkDialog.showModal();
+  updatePauseState();
+  el.networkNameInput.focus();
+}
+
+async function connectNetworkRoom() {
+  const displayName = el.networkNameInput.value;
+  el.networkConnectButton.disabled = true;
+  setNetworkStatus(networkSetupRole === 'host' ? 'Создаём комнату…' : 'Входим в комнату…');
+  try {
+    const result = networkSetupRole === 'host'
+      ? await networkClient.create({ choices: selectedSeatChoices, displayName })
+      : await networkClient.join({ roomId: networkSetupRoomId, displayName });
+    applyNetworkRoom(result.room);
+  } catch (error) {
+    el.networkConnectButton.disabled = false;
+    setNetworkStatus(error?.message || 'Не удалось подключиться.', true);
+  }
+}
+
+function leaveNetworkView({ forget = false } = {}) {
+  clearTimeout(networkAdvanceTimer);
+  networkAdvanceTimer = null;
+  networkClient.disconnect({ forget });
+  networkMode = false;
+  el.restartButton.textContent = 'Начать заново';
+  networkRoom = null;
+  networkSnapshot = null;
+  networkCommandPending = false;
+  lastNetworkStatus = '';
+  lastNetworkTrickLength = 0;
+  syncAvatarLayer();
+}
+
+function closeNetworkSetup() {
+  const wasTable = screen === 'table' && networkMode;
+  leaveNetworkView({ forget: false });
+  if (el.networkDialog.open) el.networkDialog.close();
+  updatePauseState();
+  if (wasTable || networkSetupRole !== 'host') showStartMenu();
+  else resetToPartnerPicker();
+}
+
 function startMatch() {
+  leaveNetworkView({ forget: false });
   const querySeed = Number(new URLSearchParams(location.search).get('seed'));
   const seed = Number.isFinite(querySeed) && querySeed !== 0 ? querySeed : (Date.now() ^ 0x19930822);
   const characters = selectedPartnerIds.map(id => CHARACTERS[id]);
@@ -977,9 +1388,12 @@ function resetToPartnerPicker() {
   screen = 'partners';
   game = null;
   selectedPartnerIds = [];
+  selectedSeatChoices = [];
   selectedCardId = null;
   pointerStart = null;
   inputLocked = false;
+  networkMode = false;
+  syncAvatarLayer();
   render();
   setHint('Выберите трёх партнёров: один тап сразу выбирает персонажа.');
 }
@@ -990,17 +1404,20 @@ function showStartMenu() {
   screen = 'start';
   game = null;
   selectedPartnerIds = [];
+  selectedSeatChoices = [];
   selectedCardId = null;
   pointerStart = null;
   inputLocked = true;
   const saved = loadSavedGame();
+  const savedNetworkRoom = networkClient.savedRoom();
   el.loadingOverlay.hidden = true;
   el.startOverlay.hidden = false;
   el.continueButton.disabled = !saved;
   el.continueButton.setAttribute('aria-disabled', String(!saved));
+  el.continueNetworkButton.hidden = !savedNetworkRoom;
   el.savedGameInfo.textContent = saved
     ? `Сохранено: контракт ${saved.contractIndex + 1} из ${CONTRACTS.length}`
-    : 'Сохранённой игры нет';
+    : (savedNetworkRoom ? 'Можно вернуться в сетевую комнату' : 'Сохранённой игры нет');
   renderer.clear(2);
   renderer.present();
   setHint('Продолжите сохранённую партию или начните новую.');
@@ -1015,6 +1432,7 @@ function continueSavedGame() {
 
   const token = ++runToken;
   selectedPartnerIds = [...saved.selectedPartnerIds];
+  selectedSeatChoices = selectedPartnerIds.map(characterId => ({ type: 'bot', characterId }));
   selectedCardId = null;
   pointerStart = null;
   const characters = selectedPartnerIds.map(id => CHARACTERS[id]);
@@ -1062,7 +1480,10 @@ async function startApplication() {
     await delay(180 * TIME_SCALE);
     if (token !== runToken) return;
     el.loadingOverlay.hidden = true;
-    showStartMenu();
+    if (pendingInviteRoomId) {
+      openNetworkSetup({ role: 'guest', roomId: pendingInviteRoomId });
+      setHint('Вы перешли по пригласительной ссылке. Введите имя, чтобы войти.');
+    } else showStartMenu();
     el.canvas.focus({ preventScroll: true });
   } catch (error) {
     if (token === runToken) showLoadError(error);
@@ -1102,7 +1523,7 @@ el.canvas.addEventListener('pointercancel', () => {
 el.canvas.addEventListener('contextmenu', event => event.preventDefault());
 
 function updatePauseState() {
-  paused = document.hidden || el.rulesDialog.open || el.aboutDialog.open;
+  paused = document.hidden || el.rulesDialog.open || el.aboutDialog.open || el.networkDialog.open;
 }
 
 document.addEventListener('visibilitychange', updatePauseState);
@@ -1122,8 +1543,23 @@ function openInfoDialog(dialog) {
 }
 
 el.continueButton.addEventListener('click', continueSavedGame);
+el.continueNetworkButton.addEventListener('click', () => {
+  const saved = networkClient.savedRoom();
+  if (!saved) {
+    showStartMenu();
+    return;
+  }
+  openNetworkSetup({ role: 'guest', roomId: saved.roomId, displayName: saved.displayName });
+});
 el.newGameButton.addEventListener('click', resetToPartnerPicker);
-el.restartButton.addEventListener('click', resetToPartnerPicker);
+el.restartButton.addEventListener('click', () => {
+  if (networkMode) {
+    leaveNetworkView({ forget: false });
+    showStartMenu();
+    return;
+  }
+  resetToPartnerPicker();
+});
 el.soundButton.addEventListener('click', () => {
   soundEnabled = !soundEnabled;
   saveSoundPreference();
@@ -1141,6 +1577,64 @@ el.rulesButton.addEventListener('click', () => openInfoDialog(el.rulesDialog));
 el.aboutButton.addEventListener('click', () => openInfoDialog(el.aboutDialog));
 el.rulesDialog.addEventListener('close', updatePauseState);
 el.aboutDialog.addEventListener('close', updatePauseState);
+el.networkDialog.addEventListener('close', updatePauseState);
+el.networkDialog.addEventListener('cancel', event => {
+  event.preventDefault();
+  closeNetworkSetup();
+});
+
+el.networkConnectButton.addEventListener('click', () => {
+  void connectNetworkRoom();
+});
+el.networkCloseButton.addEventListener('click', closeNetworkSetup);
+el.networkStartButton.addEventListener('click', () => {
+  if (networkRoom?.canStart) networkClient.startGame();
+});
+el.networkNameInput.addEventListener('change', () => {
+  if (networkRoom) networkClient.setName(el.networkNameInput.value);
+});
+el.networkInviteButton.addEventListener('click', () => {
+  const shareUrl = networkClient.shareUrl();
+  if (!shareUrl) {
+    setNetworkStatus('Не задана ссылка Telegram Mini App. Проверьте BOT_USERNAME и APP_SHORT_NAME.', true);
+    return;
+  }
+  if (tg?.openTelegramLink) tg.openTelegramLink(shareUrl);
+  else window.open?.(shareUrl, '_blank', 'noopener,noreferrer');
+});
+el.networkCopyButton.addEventListener('click', async () => {
+  const inviteLink = networkClient.inviteLink();
+  if (!inviteLink) {
+    setNetworkStatus('Не удалось собрать ссылку на комнату.', true);
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(inviteLink);
+    setNetworkStatus('Ссылка скопирована.');
+  } catch {
+    setNetworkStatus('Браузер не дал скопировать ссылку. Используйте кнопку приглашения.', true);
+  }
+});
+
+networkClient
+  .on('room', applyNetworkRoom)
+  .on('game', applyNetworkGame)
+  .on('error', message => {
+    networkCommandPending = false;
+    if (screen === 'table' && networkMode) {
+      inputLocked = !(game?.status === 'trick-await' || (game?.status === 'playing' && game.currentSeat === 0));
+      setHint(message);
+      render();
+    } else setNetworkStatus(message, true);
+  })
+  .on('connection', state => {
+    if (state === 'reconnecting') {
+      if (screen === 'table' && networkMode) setHint('Связь пропала. Возвращаемся в комнату…');
+      else setNetworkStatus('Связь пропала. Повторяем подключение…');
+    } else if (state === 'connecting' && !networkRoom) {
+      setNetworkStatus('Подключаемся к комнате…');
+    }
+  });
 
 el.aboutLink.addEventListener('click', event => {
   if (!tg?.openTelegramLink) return;
@@ -1156,8 +1650,17 @@ window.__kingDebug = {
     return {
       screen,
       selectedPartnerIds: [...selectedPartnerIds],
+      selectedSeatChoices: selectedSeatChoices.map(choice => ({ ...choice })),
       selectedCardId,
       inputLocked,
+      networkMode,
+      networkRoom: networkRoom ? {
+        roomId: networkRoom.roomId,
+        localSeat: networkRoom.localSeat,
+        isHost: networkRoom.isHost,
+        canStart: networkRoom.canStart,
+        seats: networkRoom.seats.map(record => ({ ...record })),
+      } : null,
       game: game ? {
         status: game.status,
         contractIndex: game.contractIndex,
@@ -1174,7 +1677,9 @@ window.__kingDebug = {
         handCounts: game.hands.map(hand => hand.length),
         playerCards: game.hands[0].map(card => ({ id: card.id, x: playerCardLayout().find(item => item.card.id === card.id)?.x })),
         legalPlayerCardIds: game.status === 'playing'
-          ? legalCards(game.hands[0], game.trick, CONTRACTS[game.contractIndex]).map(card => card.id)
+          ? (networkMode
+            ? [...(game.legalCardIds || [])]
+            : legalCards(game.hands[0], game.trick, CONTRACTS[game.contractIndex]).map(card => card.id))
           : [],
         scores: [...game.scores],
         ...matchResult(game.scores),

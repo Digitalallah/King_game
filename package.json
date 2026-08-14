@@ -5,6 +5,6 @@
   "scripts": {
     "start": "node server.mjs",
     "test": "node --test",
-    "check": "node --check src/native-assets.js && node --check src/game-engine.js && node --check src/native-game.js && node --check server.mjs && node --check worker/index.js"
+    "check": "node --check src/native-assets.js && node --check src/game-engine.js && node --check src/network-client.js && node --check src/native-game.js && node --check server.mjs && node --check worker/index.js && node --check worker/game-room.js && node --check worker/network-game.js"
   }
 }

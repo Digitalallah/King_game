@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="#000000" />
     <title>Кинг</title>
-    <link rel="stylesheet" href="./src/styles.css?v=native-7" />
+    <link rel="stylesheet" href="./src/styles.css?v=native-8" />
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
   </head>
   <body>
@@ -19,6 +19,8 @@
             tabindex="0"
             aria-label="Игровое поле. Нажимайте на персонажей и карты."
           ></canvas>
+
+          <div id="avatarLayer" class="avatar-layer" aria-hidden="true"></div>
 
           <p id="orientationHint" class="orientation-hint" aria-hidden="true">Поверните телефон горизонтально — так карты будут крупнее.</p>
 
@@ -36,6 +38,7 @@
               <strong>КИНГ</strong>
               <span id="savedGameInfo">Сохранённой игры нет</span>
               <button id="continueButton" type="button">Продолжить игру</button>
+              <button id="continueNetworkButton" type="button" hidden>Вернуться в сетевую игру</button>
               <button id="newGameButton" type="button">Начать новую</button>
             </div>
           </div>
@@ -81,6 +84,34 @@
       </article>
     </dialog>
 
+    <dialog id="networkDialog" class="info-dialog network-dialog" aria-labelledby="networkDialogTitle">
+      <article>
+        <header>
+          <h2 id="networkDialogTitle">Сетевая игра</h2>
+          <button id="networkCloseButton" type="button" aria-label="Закрыть комнату">×</button>
+        </header>
+        <p id="networkLead">Выберите имя, которое увидят остальные игроки.</p>
+        <label class="network-name-field">
+          <span>Ваше имя</span>
+          <input id="networkNameInput" type="text" maxlength="24" autocomplete="nickname" />
+        </label>
+        <button id="networkConnectButton" type="button">Создать комнату</button>
+        <p id="networkStatus" class="network-status" role="status" aria-live="polite"></p>
+        <section id="networkLobby" class="network-lobby" hidden aria-label="Состав комнаты">
+          <div class="network-room-line">
+            <strong id="networkRoomLabel">Комната</strong>
+            <span id="networkRoomCode"></span>
+          </div>
+          <div id="networkPlayers" class="network-players"></div>
+          <div class="network-actions">
+            <button id="networkInviteButton" type="button">Пригласить в Telegram</button>
+            <button id="networkCopyButton" type="button">Скопировать ссылку</button>
+            <button id="networkStartButton" type="button" disabled>Начать игру</button>
+          </div>
+        </section>
+      </article>
+    </dialog>
+
     <dialog id="aboutDialog" class="info-dialog" aria-labelledby="aboutTitle">
       <article>
         <header>
@@ -94,6 +125,6 @@
       </article>
     </dialog>
 
-    <script type="module" src="./src/native-game.js?v=native-7"></script>
+    <script type="module" src="./src/native-game.js?v=native-8"></script>
   </body>
 </html>

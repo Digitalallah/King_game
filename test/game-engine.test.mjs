@@ -4,7 +4,9 @@ import test from 'node:test';
 import {
   CHARACTERS,
   CONTRACTS,
+  characterSkill,
   chooseAiCard,
+  contractIsResolved,
   createDeck,
   createSeededRandom,
   dealHands,
@@ -48,6 +50,20 @@ test('following the leading suit is mandatory', () => {
   assert.deepEqual(legalCards(hand, trick, CONTRACTS[0]).map(card => card.id), ['clubs-7']);
 });
 
+test('a heart played second never changes the leading suit', () => {
+  const deck = createDeck();
+  const card = id => deck.find(candidate => candidate.id === id);
+  const hand = [card('diamonds-9'), card('diamonds-12'), card('clubs-8'), card('clubs-13'), card('clubs-10'), card('hearts-13')];
+  const trick = [
+    { seat: 2, card: card('clubs-12') },
+    { seat: 3, card: card('hearts-7') },
+  ];
+  assert.deepEqual(
+    legalCards(hand, trick, CONTRACTS[5]).map(candidate => candidate.id),
+    ['clubs-8', 'clubs-13', 'clubs-10'],
+  );
+});
+
 test('hearts cannot be led in hearts, King and mishmash contracts while another suit remains', () => {
   const deck = createDeck();
   const hand = [deck.find(card => card.id === 'hearts-7'), deck.find(card => card.id === 'spades-7')];
@@ -61,6 +77,23 @@ test('the King must be discarded when its holder cannot follow suit', () => {
   const hand = [deck.find(card => card.id === 'hearts-13'), deck.find(card => card.id === 'spades-7')];
   const trick = [{ seat: 2, card: deck.find(card => card.id === 'clubs-14') }];
   assert.deepEqual(legalCards(hand, trick, CONTRACTS[5]).map(card => card.id), ['hearts-13']);
+});
+
+test('scoring-card contracts resolve as soon as their remaining targets are gone', () => {
+  const deck = createDeck();
+  const card = id => deck.find(candidate => candidate.id === id);
+  const noHearts = [[card('clubs-7')], [card('spades-8')], [], []];
+  const noBoys = [[card('clubs-7')], [card('hearts-12')], [], []];
+  const noGirls = [[card('clubs-11')], [card('hearts-13')], [], []];
+  const noKing = [[card('hearts-12')], [card('clubs-13')], [], []];
+
+  assert.equal(contractIsResolved(CONTRACTS[1], noHearts), true);
+  assert.equal(contractIsResolved(CONTRACTS[2], noBoys), true);
+  assert.equal(contractIsResolved(CONTRACTS[3], noGirls), true);
+  assert.equal(contractIsResolved(CONTRACTS[5], noKing), true);
+  assert.equal(contractIsResolved(CONTRACTS[0], noKing), false);
+  assert.equal(contractIsResolved(CONTRACTS[4], noKing), false);
+  assert.equal(contractIsResolved(CONTRACTS[6], noKing), false);
 });
 
 test('the highest card of the leading suit wins the trick', () => {
@@ -97,6 +130,17 @@ test('AI always returns one of the cards legal for the current trick', () => {
   const legal = legalCards(hands[1], trick, CONTRACTS[6]);
   const selected = chooseAiCard(hands[1], trick, CONTRACTS[6], 0, random);
   assert.ok(legal.some(card => card.id === selected.id));
+});
+
+test('the twelve opponents use the three original skill groups shown by the picker', () => {
+  assert.deepEqual(CHARACTERS.map(character => character.skill), [
+    'good', 'good', 'good', 'good',
+    'excellent', 'excellent', 'excellent', 'excellent',
+    'cheater', 'cheater', 'cheater', 'cheater',
+  ]);
+  assert.equal(characterSkill(0), 'good');
+  assert.equal(characterSkill(4), 'excellent');
+  assert.equal(characterSkill(8), 'cheater');
 });
 
 test('one tap selects a card and the second tap requests a play', () => {

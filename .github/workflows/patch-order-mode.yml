@@ -23,10 +23,12 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      - name: Repair patch script
+        run: node scripts/fix-patch-script.mjs
       - name: Apply deterministic patch
         run: node scripts/patch-order-mode.mjs
       - name: Remove one-shot patch helpers
-        run: rm scripts/patch-order-mode.mjs .github/workflows/patch-order-mode.yml
+        run: rm scripts/fix-patch-script.mjs scripts/patch-order-mode.mjs .github/workflows/patch-order-mode.yml
       - name: Run tests
         run: npm test
       - name: Check syntax

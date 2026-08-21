@@ -1,6 +1,10 @@
 import {
+  CHARACTERS,
   CONTRACTS,
+  GAME_MODES,
   chooseAiCard,
+  chooseAiContract,
+  contractIsResolved,
   createDeck,
   createSeededRandom,
   dealHands,
@@ -12,6 +16,7 @@ import {
 
 export const NETWORK_TIMING = {
   botTurnMs: 1150,
+  botContractMs: 1350,
   trickCollectMs: 650,
   contractResultMs: 2600,
   nextTrickBotMs: 1210,
@@ -31,29 +36,79 @@ function withRandom(game, operation) {
   return result;
 }
 
+function normalizeMode(mode) {
+  return mode === GAME_MODES.ORDERED ? GAME_MODES.ORDERED : GAME_MODES.CLASSIC;
+}
+
+function totalRounds(game) {
+  return game.mode === GAME_MODES.ORDERED ? CONTRACTS.length * 4 : CONTRACTS.length;
+}
+
 function scheduleBot(game, seats, now, delayMs = NETWORK_TIMING.botTurnMs) {
   game.nextActionAt = game.status === 'playing' && seats[game.currentSeat]?.type === 'bot'
     ? now + delayMs
     : null;
 }
 
-function startContract(game, seats, contractIndex, now) {
-  game.contractIndex = contractIndex;
+function scheduleContractBot(game, seats, now) {
+  game.nextActionAt = game.status === 'contract-choice' && seats[game.ordererSeat]?.type === 'bot'
+    ? now + NETWORK_TIMING.botContractMs
+    : null;
+}
+
+function dealRound(game) {
   game.hands = withRandom(game, random => dealHands(shuffleDeck(createDeck(), random)));
   game.trick = [];
   game.trickWinnerSeat = null;
   game.trickNumber = 0;
   game.dealScores = [0, 0, 0, 0];
+}
+
+function startClassicContract(game, seats, contractIndex, now) {
+  game.roundNumber = contractIndex;
+  game.contractIndex = contractIndex;
+  game.ordererSeat = null;
+  dealRound(game);
   game.currentSeat = (contractIndex + 1) % 4;
   game.status = 'playing';
   game.message = `${CONTRACTS[contractIndex].name}. Раздаём карты…`;
   scheduleBot(game, seats, now, NETWORK_TIMING.firstTurnBotMs);
 }
 
-export function createNetworkGame(seats, seed = randomSeed(), now = Date.now()) {
+function startOrderedRound(game, seats, roundNumber, now) {
+  game.roundNumber = roundNumber;
+  game.contractIndex = null;
+  game.ordererSeat = (roundNumber + 1) % 4;
+  dealRound(game);
+  game.currentSeat = game.ordererSeat;
+  game.status = 'contract-choice';
+  game.message = `Место ${game.ordererSeat + 1} выбирает контракт.`;
+  scheduleContractBot(game, seats, now);
+}
+
+function activateOrderedContract(game, seats, seat, contractIndex, now) {
+  if (game.mode !== GAME_MODES.ORDERED || game.status !== 'contract-choice') {
+    throw new Error('Сейчас нельзя выбирать контракт.');
+  }
+  if (game.ordererSeat !== seat) throw new Error('Сейчас контракт выбирает другой игрок.');
+  const available = game.remainingContracts?.[seat] || [];
+  if (!available.includes(contractIndex)) throw new Error('Этот контракт уже был заказан этим игроком.');
+
+  game.remainingContracts[seat] = available.filter(index => index !== contractIndex);
+  game.contractIndex = contractIndex;
+  game.currentSeat = seat;
+  game.status = 'playing';
+  game.nextActionAt = null;
+  game.message = `${CONTRACTS[contractIndex].name}. Заказ принят.`;
+  scheduleBot(game, seats, now, NETWORK_TIMING.firstTurnBotMs);
+}
+
+export function createNetworkGame(seats, seed = randomSeed(), now = Date.now(), mode = GAME_MODES.CLASSIC) {
   if (!Array.isArray(seats) || seats.length !== 4) throw new Error('Для партии нужны четыре места.');
+  const normalizedMode = normalizeMode(mode);
   const game = {
-    version: 1,
+    version: 2,
+    mode: normalizedMode,
     randomState: Number(seed) >>> 0 || 0x6d2b79f5,
     scores: [0, 0, 0, 0],
     dealScores: [0, 0, 0, 0],
@@ -62,14 +117,20 @@ export function createNetworkGame(seats, seed = randomSeed(), now = Date.now()) 
     trickWinnerSeat: null,
     trickNumber: 0,
     currentSeat: 0,
-    contractIndex: 0,
+    contractIndex: normalizedMode === GAME_MODES.ORDERED ? null : 0,
+    roundNumber: 0,
+    ordererSeat: normalizedMode === GAME_MODES.ORDERED ? 1 : null,
+    remainingContracts: normalizedMode === GAME_MODES.ORDERED
+      ? Array.from({ length: 4 }, () => CONTRACTS.map(contract => contract.id))
+      : null,
     status: 'playing',
     winners: [],
     nextActionAt: null,
     revision: 1,
     message: '',
   };
-  startContract(game, seats, 0, now);
+  if (normalizedMode === GAME_MODES.ORDERED) startOrderedRound(game, seats, 0, now);
+  else startClassicContract(game, seats, 0, now);
   return game;
 }
 
@@ -120,6 +181,13 @@ export function playHumanCard(game, seats, seat, cardId, now = Date.now()) {
   return game;
 }
 
+export function chooseHumanContract(game, seats, seat, contractIndex, now = Date.now()) {
+  if (seats[seat]?.type !== 'human') throw new Error('Это место не принадлежит живому игроку.');
+  activateOrderedContract(game, seats, seat, Number(contractIndex), now);
+  game.revision += 1;
+  return game;
+}
+
 export function beginTrickCollection(game, now = Date.now()) {
   if (game.status !== 'trick-await') throw new Error('Взятка ещё не завершена.');
   game.status = 'trick-collecting';
@@ -142,8 +210,37 @@ function finishGame(game) {
     : `Партия окончена. Ничья между местами ${game.winners.map(seat => seat + 1).join(', ')}.`;
 }
 
+function botContext(game, seats, seat) {
+  const record = seats[seat];
+  const character = record?.type === 'bot' ? CHARACTERS[record.characterId] : null;
+  return {
+    character,
+    skill: character?.skill,
+    seat,
+    hands: game.hands,
+  };
+}
+
 export function advanceNetworkGame(game, seats, now = Date.now()) {
   if (game.nextActionAt === null || now < game.nextActionAt) return false;
+
+  if (game.status === 'contract-choice') {
+    const seat = game.ordererSeat;
+    if (seats[seat]?.type !== 'bot') {
+      game.nextActionAt = null;
+      return false;
+    }
+    const available = game.remainingContracts?.[seat] || [];
+    const contractIndex = withRandom(game, random => chooseAiContract(
+      game.hands[seat],
+      available,
+      random,
+      botContext(game, seats, seat),
+    ));
+    activateOrderedContract(game, seats, seat, contractIndex, now);
+    game.revision += 1;
+    return true;
+  }
 
   if (game.status === 'playing') {
     if (seats[game.currentSeat]?.type !== 'bot') {
@@ -157,6 +254,7 @@ export function advanceNetworkGame(game, seats, now = Date.now()) {
       CONTRACTS[game.contractIndex],
       game.trickNumber,
       random,
+      botContext(game, seats, seat),
     ));
     applyCard(game, seat, card.id, seats, now);
     return true;
@@ -165,7 +263,10 @@ export function advanceNetworkGame(game, seats, now = Date.now()) {
   if (game.status === 'trick-collecting') {
     game.trick = [];
     game.trickWinnerSeat = null;
-    if (game.trickNumber >= 8) {
+    const contractDone = game.trickNumber >= 8
+      || contractIsResolved(CONTRACTS[game.contractIndex], game.hands);
+    if (contractDone) {
+      game.hands = [[], [], [], []];
       game.status = 'contract-result';
       game.nextActionAt = now + NETWORK_TIMING.contractResultMs;
       game.message = 'Раздача окончена.';
@@ -179,8 +280,11 @@ export function advanceNetworkGame(game, seats, now = Date.now()) {
   }
 
   if (game.status === 'contract-result') {
-    if (game.contractIndex >= CONTRACTS.length - 1) finishGame(game);
-    else startContract(game, seats, game.contractIndex + 1, now);
+    if (game.mode === GAME_MODES.ORDERED) {
+      if (game.roundNumber >= totalRounds(game) - 1) finishGame(game);
+      else startOrderedRound(game, seats, game.roundNumber + 1, now);
+    } else if (game.contractIndex >= CONTRACTS.length - 1) finishGame(game);
+    else startClassicContract(game, seats, game.contractIndex + 1, now);
     game.revision += 1;
     return true;
   }
@@ -192,8 +296,15 @@ export function advanceNetworkGame(game, seats, now = Date.now()) {
 export function gameForPlayer(game, viewerSeat, now = Date.now()) {
   const hand = game.hands[viewerSeat] || [];
   return {
+    mode: game.mode,
     status: game.status,
     contractIndex: game.contractIndex,
+    roundNumber: game.roundNumber,
+    totalRounds: totalRounds(game),
+    ordererSeat: game.ordererSeat,
+    availableContractIndexes: game.status === 'contract-choice' && game.ordererSeat === viewerSeat
+      ? [...(game.remainingContracts?.[viewerSeat] || [])]
+      : [],
     currentSeat: game.currentSeat,
     trickNumber: game.trickNumber,
     trick: game.trick.map(entry => ({ seat: entry.seat, cardId: entry.card.id })),

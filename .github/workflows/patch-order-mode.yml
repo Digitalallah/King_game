@@ -1,0 +1,36 @@
+name: Apply ordered King mode patch
+
+on:
+  push:
+    branches:
+      - agent/order-mode-ai-rules
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Apply deterministic patch
+        run: node scripts/patch-order-mode.mjs
+      - name: Remove one-shot patch helpers
+        run: rm scripts/patch-order-mode.mjs .github/workflows/patch-order-mode.yml
+      - name: Run tests
+        run: npm test
+      - name: Check syntax
+        run: npm run check
+      - name: Commit result
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Реализовать заказной режим и разные уровни ИИ"
+          git push

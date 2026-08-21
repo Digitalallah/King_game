@@ -1,7 +1,8 @@
-import { CHARACTERS } from '../src/game-engine.js';
+import { CHARACTERS, GAME_MODES } from '../src/game-engine.js';
 import {
   advanceNetworkGame,
   beginTrickCollection,
+  chooseHumanContract,
   createNetworkGame,
   gameForPlayer,
   playHumanCard,
@@ -139,7 +140,7 @@ export class GameRoom {
     const existing = await this.getRoom();
     if (existing) return json({ ok: false, error: 'Такая комната уже существует.' }, 409);
 
-    const { user, choices, displayName } = await request.json();
+    const { user, choices, displayName, mode } = await request.json();
     if (!user?.id) return json({ ok: false, error: 'Нет данных игрока.' }, 401);
     const normalizedChoices = normalizeChoices(choices);
     const now = Date.now();
@@ -154,6 +155,7 @@ export class GameRoom {
       roomId,
       hostUserId: user.id,
       status: 'lobby',
+      mode: mode === GAME_MODES.ORDERED ? GAME_MODES.ORDERED : GAME_MODES.CLASSIC,
       seats,
       game: null,
       tickets: {},
@@ -306,8 +308,19 @@ export class GameRoom {
         if (room.hostUserId !== session.userId) throw new Error('Начать игру может только создатель комнаты.');
         if (room.status !== 'lobby') throw new Error('Игра уже началась.');
         if (!this.canStart(room)) throw new Error('Дождитесь, пока все приглашённые игроки подключатся.');
-        room.game = createNetworkGame(room.seats, undefined, now);
+        room.game = createNetworkGame(room.seats, undefined, now, room.mode || GAME_MODES.CLASSIC);
         room.status = 'playing';
+        room.updatedAt = now;
+        await this.saveRoom(room);
+        await this.broadcast(room);
+        return;
+      }
+
+      if (message.type === 'chooseContract') {
+        if (room.status !== 'playing' || !room.game) throw new Error('Игра ещё не началась.');
+        const record = room.seats[session.seat];
+        if (record?.type !== 'human' || record.userId !== session.userId) throw new Error('Это место вам не принадлежит.');
+        chooseHumanContract(room.game, room.seats, session.seat, Number(message.contractIndex), now);
         room.updatedAt = now;
         await this.saveRoom(room);
         await this.broadcast(room);
@@ -391,6 +404,7 @@ export class GameRoom {
     return {
       roomId: room.roomId,
       status: room.status,
+      mode: room.mode || GAME_MODES.CLASSIC,
       localSeat,
       isHost: room.hostUserId === localUserId,
       canStart: room.hostUserId === localUserId && this.canStart(room),

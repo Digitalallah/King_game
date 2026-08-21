@@ -4,6 +4,7 @@ import test from 'node:test';
 import {
   advanceNetworkGame,
   beginTrickCollection,
+  chooseHumanContract,
   createNetworkGame,
   gameForPlayer,
   playHumanCard,
@@ -66,6 +67,66 @@ test('a completed trick waits for a tap and visibly stays collected for the conf
   assert.equal(game.trick.length, 4);
   assert.equal(advanceNetworkGame(game, seats, 2_650), true);
   assert.equal(game.trick.length, 0);
+});
+
+test('ordered mode exposes all fourteen contracts only to the current orderer', () => {
+  const seats = [{ type: 'human' }, { type: 'human' }, { type: 'human' }, { type: 'human' }];
+  const game = createNetworkGame(seats, 1993, 0, 'ordered');
+
+  assert.equal(game.mode, 'ordered');
+  assert.equal(game.status, 'contract-choice');
+  assert.equal(game.roundNumber, 0);
+  assert.equal(game.ordererSeat, 1);
+  assert.equal(game.contractIndex, null);
+  assert.equal(gameForPlayer(game, 0, 0).availableContractIndexes.length, 0);
+  assert.equal(gameForPlayer(game, 1, 0).availableContractIndexes.length, 14);
+
+  chooseHumanContract(game, seats, 1, 5, 0);
+  assert.equal(game.status, 'playing');
+  assert.equal(game.contractIndex, 5);
+  assert.equal(game.currentSeat, 1);
+  assert.equal(game.remainingContracts[1].includes(5), false);
+});
+
+test('ordered mode completes 56 rounds and every player orders every contract once', () => {
+  const seats = [{ type: 'human' }, { type: 'human' }, { type: 'human' }, { type: 'human' }];
+  const game = createNetworkGame(seats, 50057, 0, 'ordered');
+  let now = 0;
+  let steps = 0;
+  const orderedBySeat = Array.from({ length: 4 }, () => []);
+
+  while (game.status !== 'game-over' && steps < 20_000) {
+    steps += 1;
+    if (game.status === 'contract-choice') {
+      const seat = game.ordererSeat;
+      const view = gameForPlayer(game, seat, now);
+      const contractIndex = view.availableContractIndexes[0];
+      assert.ok(Number.isInteger(contractIndex), `seat ${seat} must have a contract to order`);
+      orderedBySeat[seat].push(contractIndex);
+      chooseHumanContract(game, seats, seat, contractIndex, now);
+    } else if (game.status === 'playing') {
+      const seat = game.currentSeat;
+      const view = gameForPlayer(game, seat, now);
+      assert.ok(view.legalCardIds.length > 0, `seat ${seat} must have a legal card`);
+      playHumanCard(game, seats, seat, view.legalCardIds[0], now);
+    } else if (game.status === 'trick-await') {
+      beginTrickCollection(game, now);
+    } else if (game.nextActionAt !== null) {
+      now = Math.max(now, game.nextActionAt);
+      advanceNetworkGame(game, seats, now);
+    } else {
+      assert.fail(`ordered game stalled in ${game.status}`);
+    }
+  }
+
+  assert.equal(game.status, 'game-over');
+  assert.equal(game.roundNumber, 55);
+  assert.deepEqual(game.remainingContracts, [[], [], [], []]);
+  for (const orders of orderedBySeat) {
+    assert.equal(orders.length, 14);
+    assert.deepEqual([...orders].sort((left, right) => left - right), Array.from({ length: 14 }, (_, index) => index));
+  }
+  assert.equal(game.scores.reduce((sum, score) => sum + score, 0), 0);
 });
 
 test('a mixed human and bot game completes all fourteen contracts with a final winner', () => {

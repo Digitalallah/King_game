@@ -1,6 +1,11 @@
 export const SUITS = ['diamonds', 'clubs', 'spades', 'hearts'];
 export const RANKS = [7, 8, 9, 10, 11, 12, 13, 14];
 
+export const GAME_MODES = Object.freeze({
+  CLASSIC: 'classic',
+  ORDERED: 'ordered',
+});
+
 export const SUIT_SYMBOLS = {
   diamonds: '♦',
   clubs: '♣',
@@ -27,19 +32,24 @@ const CARD_SPRITE_STARTS = {
 };
 
 export const CHARACTERS = [
-  { id: 0, name: 'Винни Пух', spriteId: 52, cropX: 0 },
-  { id: 1, name: 'Кролик', spriteId: 52, cropX: 80 },
-  { id: 2, name: 'Иа-Иа', spriteId: 52, cropX: 160 },
-  { id: 3, name: 'Пятачок', spriteId: 52, cropX: 240 },
-  { id: 4, name: 'Фрекен Бок', spriteId: 53, cropX: 0 },
-  { id: 5, name: 'Багира', spriteId: 53, cropX: 80 },
-  { id: 6, name: 'Сова', spriteId: 53, cropX: 160 },
-  { id: 7, name: 'Оля', spriteId: 53, cropX: 240 },
-  { id: 8, name: 'Мишка', spriteId: 54, cropX: 0 },
-  { id: 9, name: 'Башуров', spriteId: 54, cropX: 80 },
-  { id: 10, name: 'Карлсон', spriteId: 54, cropX: 160 },
-  { id: 11, name: 'Борька', spriteId: 54, cropX: 240 },
+  { id: 0, name: 'Винни Пух', spriteId: 52, cropX: 0, skill: 'good' },
+  { id: 1, name: 'Кролик', spriteId: 52, cropX: 80, skill: 'good' },
+  { id: 2, name: 'Иа-Иа', spriteId: 52, cropX: 160, skill: 'good' },
+  { id: 3, name: 'Пятачок', spriteId: 52, cropX: 240, skill: 'good' },
+  { id: 4, name: 'Фрекен Бок', spriteId: 53, cropX: 0, skill: 'excellent' },
+  { id: 5, name: 'Багира', spriteId: 53, cropX: 80, skill: 'excellent' },
+  { id: 6, name: 'Сова', spriteId: 53, cropX: 160, skill: 'excellent' },
+  { id: 7, name: 'Оля', spriteId: 53, cropX: 240, skill: 'excellent' },
+  { id: 8, name: 'Мишка', spriteId: 54, cropX: 0, skill: 'cheater' },
+  { id: 9, name: 'Башуров', spriteId: 54, cropX: 80, skill: 'cheater' },
+  { id: 10, name: 'Карлсон', spriteId: 54, cropX: 160, skill: 'cheater' },
+  { id: 11, name: 'Борька', spriteId: 54, cropX: 240, skill: 'cheater' },
 ];
+
+export function characterSkill(characterOrId) {
+  const character = typeof characterOrId === 'number' ? CHARACTERS[characterOrId] : characterOrId;
+  return character?.skill || 'good';
+}
 
 function makeContract(id, family, direction, noun, value, options = {}) {
   const taking = direction > 0;
@@ -67,7 +77,7 @@ const NEGATIVE_CONTRACTS = [
 
 export const CONTRACTS = [
   ...NEGATIVE_CONTRACTS,
-  ...NEGATIVE_CONTRACTS.map((contract, offset) => makeContract(
+  ...NEGATIVE_CONTRACTS.map(contract => makeContract(
     contract.id + 7,
     contract.family,
     1,
@@ -184,6 +194,23 @@ export function scoreTrick(contract, trick, trickNumber) {
   return contract.direction * familyPoints(contract.family, trick, trickNumber);
 }
 
+export function contractIsResolved(contract, hands) {
+  if (!contract || !Array.isArray(hands)) return false;
+  const remaining = hands.flat().filter(Boolean);
+  if (remaining.length === 0) return true;
+
+  switch (contract.family) {
+    case 'hearts': return !remaining.some(card => card.suit === 'hearts');
+    case 'boys': return !remaining.some(card => card.rank === 11 || card.rank === 13);
+    case 'girls': return !remaining.some(card => card.rank === 12);
+    case 'king': return !remaining.some(card => card.suit === 'hearts' && card.rank === 13);
+    case 'tricks':
+    case 'last':
+    case 'all':
+    default: return false;
+  }
+}
+
 function penaltyWeight(card, contract, trickNumber) {
   const weights = {
     tricks: card.rank,
@@ -205,7 +232,7 @@ function byRank(left, right) {
   return left.rank - right.rank || left.suitIndex - right.suitIndex;
 }
 
-export function chooseAiCard(hand, trick, contract, trickNumber = 0, random = Math.random) {
+function chooseBaselineAiCard(hand, trick, contract, trickNumber, random) {
   const legal = legalCards(hand, trick, contract);
   if (legal.length <= 1) return legal[0] ?? null;
 
@@ -242,6 +269,110 @@ export function chooseAiCard(hand, trick, contract, trickNumber = 0, random = Ma
     const rightValue = penaltyWeight(right, contract, trickNumber) + smallNoise();
     return wantsPoints ? leftValue - rightValue : rightValue - leftValue;
   })[0];
+}
+
+function chooseCheatingCard(hand, trick, contract, trickNumber, random, context) {
+  const legal = legalCards(hand, trick, contract);
+  const seat = Number(context?.seat);
+  const hands = context?.hands;
+  if (legal.length <= 1 || !Number.isInteger(seat) || !Array.isArray(hands) || hands.length !== 4) {
+    return chooseBaselineAiCard(hand, trick, contract, trickNumber, random);
+  }
+
+  let best = null;
+  for (const candidate of legal) {
+    const simulatedTrick = [...trick, { seat, card: candidate }];
+    const simulatedHands = hands.map(cards => (Array.isArray(cards) ? cards.filter(card => card?.id !== candidate.id) : []));
+    let nextSeat = (seat + 1) % 4;
+
+    while (simulatedTrick.length < 4) {
+      const nextHand = simulatedHands[nextSeat] || [];
+      const nextCard = chooseBaselineAiCard(nextHand, simulatedTrick, contract, trickNumber, () => 0.5);
+      if (!nextCard) break;
+      simulatedTrick.push({ seat: nextSeat, card: nextCard });
+      simulatedHands[nextSeat] = nextHand.filter(card => card.id !== nextCard.id);
+      nextSeat = (nextSeat + 1) % 4;
+    }
+
+    let utility = 0;
+    if (simulatedTrick.length === 4) {
+      const winner = trickWinner(simulatedTrick);
+      const points = scoreTrick(contract, simulatedTrick, trickNumber);
+      utility = winner?.seat === seat ? points : 0;
+    }
+    const shed = penaltyWeight(candidate, contract, trickNumber);
+    const tieBreak = contract.direction < 0 ? shed / 10_000 : -shed / 10_000;
+    const value = utility + tieBreak;
+    if (!best || value > best.value) best = { card: candidate, value };
+  }
+  return best?.card || chooseBaselineAiCard(hand, trick, contract, trickNumber, random);
+}
+
+export function chooseAiCard(hand, trick, contract, trickNumber = 0, random = Math.random, context = {}) {
+  const legal = legalCards(hand, trick, contract);
+  if (legal.length <= 1) return legal[0] ?? null;
+  const skill = context.skill || characterSkill(context.character);
+
+  if (skill === 'cheater') {
+    return chooseCheatingCard(hand, trick, contract, trickNumber, random, context);
+  }
+
+  const baseline = chooseBaselineAiCard(hand, trick, contract, trickNumber, random);
+  if (skill === 'good' && legal.length > 1 && random() < 0.12) {
+    const alternatives = legal.filter(card => card.id !== baseline?.id);
+    if (alternatives.length) return alternatives[Math.floor(random() * alternatives.length)];
+  }
+  return baseline;
+}
+
+function contractHandPotential(hand, contract) {
+  const rankPower = hand.reduce((sum, card) => sum + Math.max(0, card.rank - 9), 0);
+  switch (contract.family) {
+    case 'tricks': return rankPower * 7;
+    case 'hearts': return hand.reduce((sum, card) => sum + (card.suit === 'hearts' ? 30 + card.rank : 0), 0) + rankPower;
+    case 'boys': return hand.reduce((sum, card) => sum + (card.rank === 11 || card.rank === 13 ? 55 : 0), 0) + rankPower;
+    case 'girls': return hand.reduce((sum, card) => sum + (card.rank === 12 ? 75 : 0), 0) + rankPower;
+    case 'last': return rankPower * 9;
+    case 'king': return hand.some(card => card.suit === 'hearts' && card.rank === 13) ? 220 + rankPower : rankPower;
+    case 'all': return hand.reduce((sum, card) => sum + penaltyWeight(card, contract, 0), 0) + rankPower * 3;
+    default: return rankPower;
+  }
+}
+
+export function chooseAiContract(hand, availableContractIndexes, random = Math.random, context = {}) {
+  const available = [...new Set(availableContractIndexes || [])]
+    .filter(index => Number.isInteger(index) && CONTRACTS[index]);
+  if (available.length === 0) return null;
+  if (available.length === 1) return available[0];
+
+  const skill = context.skill || characterSkill(context.character);
+  const ownHand = Array.isArray(hand) ? hand : [];
+  const hands = Array.isArray(context.hands) && context.hands.length === 4 ? context.hands : null;
+  const seat = Number(context.seat);
+
+  const ranked = available.map(index => {
+    const contract = CONTRACTS[index];
+    const own = contractHandPotential(ownHand, contract);
+    let desirability = contract.direction > 0 ? own : -own;
+
+    if (skill === 'cheater' && hands && Number.isInteger(seat)) {
+      const opponents = hands
+        .map((cards, candidateSeat) => (candidateSeat === seat ? null : contractHandPotential(cards || [], contract)))
+        .filter(value => value !== null);
+      const averageOpponent = opponents.reduce((sum, value) => sum + value, 0) / Math.max(1, opponents.length);
+      desirability += contract.direction > 0
+        ? (own - averageOpponent) * 0.65
+        : (averageOpponent - own) * 0.65;
+    }
+
+    return { index, desirability, noise: random() * 0.001 };
+  }).sort((left, right) => right.desirability - left.desirability || right.noise - left.noise);
+
+  if (skill === 'good') {
+    const pool = ranked.slice(0, Math.min(3, ranked.length));
+    return pool[Math.floor(random() * pool.length)].index;
+  }
+  return ranked[0].index;
 }
 
 export function updateCardTapSelection(selectedCardId, tappedCardId) {

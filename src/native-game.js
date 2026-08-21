@@ -1,7 +1,11 @@
 import {
   CHARACTERS,
   CONTRACTS,
+  GAME_MODES,
+  SUIT_SYMBOLS,
   chooseAiCard,
+  chooseAiContract,
+  contractIsResolved,
   createDeck,
   createSeededRandom,
   dealHands,
@@ -12,7 +16,7 @@ import {
   shuffleDeck,
   trickWinner,
   updateCardTapSelection,
-} from './game-engine.js?v=native-8';
+} from './game-engine.js?v=native-10';
 import {
   IndexedRenderer,
   loadKingAssets,
@@ -23,7 +27,7 @@ import {
   KingRoomClient,
   defaultPlayerName,
   parseRoomInvite,
-} from './network-client.js?v=native-9';
+} from './network-client.js?v=native-10';
 
 const tg = window.Telegram?.WebApp;
 
@@ -36,6 +40,13 @@ const el = {
   loadingBar: document.querySelector('#loadingBar'),
   retryButton: document.querySelector('#retryButton'),
   startOverlay: document.querySelector('#startOverlay'),
+  modeDialog: document.querySelector('#modeDialog'),
+  classicModeButton: document.querySelector('#classicModeButton'),
+  orderedModeButton: document.querySelector('#orderedModeButton'),
+  contractDialog: document.querySelector('#contractDialog'),
+  contractChoiceTitle: document.querySelector('#contractChoiceTitle'),
+  contractChoiceLead: document.querySelector('#contractChoiceLead'),
+  contractChoices: document.querySelector('#contractChoices'),
   savedGameInfo: document.querySelector('#savedGameInfo'),
   continueButton: document.querySelector('#continueButton'),
   continueNetworkButton: document.querySelector('#continueNetworkButton'),
@@ -76,7 +87,7 @@ const CONTRACT_RESULT_MS = 2600;
 const ORIENTATION_HINT_MS = 3200;
 const SOUND_STORAGE_KEY = 'king-sound-enabled';
 const SAVE_STORAGE_KEY = 'king-single-player-save';
-const SAVE_VERSION = 1;
+const SAVE_VERSION = 2;
 const TRICK_POSITIONS = [
   { x: 295, y: 182 },
   { x: 243, y: 151 },
@@ -105,6 +116,7 @@ let renderer = null;
 let screen = 'loading';
 let selectedPartnerIds = [];
 let selectedSeatChoices = [];
+let selectedGameMode = GAME_MODES.CLASSIC;
 let game = null;
 let selectedCardId = null;
 let inputLocked = true;
@@ -290,12 +302,22 @@ function loadSavedGame() {
     const raw = window.localStorage?.getItem(SAVE_STORAGE_KEY);
     if (!raw) return null;
     const saved = JSON.parse(raw);
+    if (saved.version === 1) {
+      saved.mode = GAME_MODES.CLASSIC;
+      saved.roundNumber = saved.contractIndex;
+      saved.ordererSeat = null;
+      saved.remainingContracts = null;
+    }
+    if (![1, SAVE_VERSION].includes(saved.version)) throw new Error('Invalid saved version');
+
+    const mode = saved.mode === GAME_MODES.ORDERED ? GAME_MODES.ORDERED : GAME_MODES.CLASSIC;
+    const totalRounds = mode === GAME_MODES.ORDERED ? CONTRACTS.length * 4 : CONTRACTS.length;
     const partnerIds = saved.selectedPartnerIds;
     const validPartners = Array.isArray(partnerIds)
       && partnerIds.length === 3
       && new Set(partnerIds).size === 3
       && partnerIds.every(id => Number.isInteger(id) && CHARACTERS[id]);
-    const validStatus = ['playing', 'trick-await', 'contract-result'].includes(saved.status);
+    const validStatus = ['contract-choice', 'playing', 'trick-await', 'contract-result'].includes(saved.status);
     const validHands = Array.isArray(saved.hands)
       && saved.hands.length === 4
       && saved.hands.every(hand => Array.isArray(hand) && hand.length <= 8);
@@ -307,29 +329,50 @@ function loadSavedGame() {
         && entry.seat < 4
         && typeof entry.cardId === 'string'
       ));
+    const validContract = saved.status === 'contract-choice'
+      ? saved.contractIndex === null
+      : Number.isInteger(saved.contractIndex)
+        && saved.contractIndex >= 0
+        && saved.contractIndex < CONTRACTS.length;
+    const validRound = Number.isInteger(saved.roundNumber)
+      && saved.roundNumber >= 0
+      && saved.roundNumber < totalRounds;
     const validNumbers = Number.isInteger(saved.randomState)
       && saved.randomState > 0
-      && Number.isInteger(saved.contractIndex)
-      && saved.contractIndex >= 0
-      && saved.contractIndex < CONTRACTS.length
+      && validContract
+      && validRound
       && Number.isInteger(saved.currentSeat)
       && saved.currentSeat >= 0
       && saved.currentSeat < 4
       && Number.isInteger(saved.trickNumber)
       && saved.trickNumber >= 0
       && saved.trickNumber <= 8;
+    const validOrder = mode === GAME_MODES.CLASSIC
+      ? saved.ordererSeat === null
+      : Number.isInteger(saved.ordererSeat) && saved.ordererSeat >= 0 && saved.ordererSeat < 4;
+    const validRemaining = mode === GAME_MODES.CLASSIC
+      ? saved.remainingContracts === null
+      : Array.isArray(saved.remainingContracts)
+        && saved.remainingContracts.length === 4
+        && saved.remainingContracts.every(list => (
+          Array.isArray(list)
+          && new Set(list).size === list.length
+          && list.every(index => Number.isInteger(index) && CONTRACTS[index])
+        ));
+
     if (
-      saved.version !== SAVE_VERSION
-      || !validPartners
+      !validPartners
       || !validStatus
       || !validHands
       || !validTrick
       || !validNumbers
+      || !validOrder
+      || !validRemaining
       || !scoreArray(saved.scores)
       || !scoreArray(saved.dealScores)
       || (saved.status === 'playing' && saved.trick.length >= 4)
       || (saved.status === 'trick-await' && saved.trick.length !== 4)
-      || (saved.status === 'contract-result' && saved.trick.length !== 0)
+      || ((saved.status === 'contract-choice' || saved.status === 'contract-result') && saved.trick.length !== 0)
     ) throw new Error('Invalid saved game');
 
     const usedCardIds = new Set();
@@ -361,6 +404,7 @@ function loadSavedGame() {
 
     return {
       selectedPartnerIds: [...partnerIds],
+      mode,
       randomState: saved.randomState,
       scores: [...saved.scores],
       dealScores: [...saved.dealScores],
@@ -370,6 +414,9 @@ function loadSavedGame() {
       trickNumber: saved.trickNumber,
       currentSeat: saved.currentSeat,
       contractIndex: saved.contractIndex,
+      roundNumber: saved.roundNumber,
+      ordererSeat: saved.ordererSeat,
+      remainingContracts: saved.remainingContracts?.map(list => [...list]) ?? null,
       status: saved.status,
       savedAt: Number(saved.savedAt) || 0,
     };
@@ -382,10 +429,9 @@ function loadSavedGame() {
 function saveCurrentGame() {
   if (
     networkMode
-    ||
-    screen !== 'table'
+    || screen !== 'table'
     || !game
-    || !['playing', 'trick-await', 'contract-result'].includes(game.status)
+    || !['contract-choice', 'playing', 'trick-await', 'contract-result'].includes(game.status)
   ) return;
 
   try {
@@ -393,6 +439,7 @@ function saveCurrentGame() {
       version: SAVE_VERSION,
       savedAt: Date.now(),
       selectedPartnerIds: game.characters.map(character => character.id),
+      mode: game.mode,
       randomState: game.random.getState(),
       scores: [...game.scores],
       dealScores: [...game.dealScores],
@@ -402,6 +449,9 @@ function saveCurrentGame() {
       trickNumber: game.trickNumber,
       currentSeat: game.currentSeat,
       contractIndex: game.contractIndex,
+      roundNumber: game.roundNumber,
+      ordererSeat: game.ordererSeat,
+      remainingContracts: game.remainingContracts?.map(list => [...list]) ?? null,
       status: game.status,
     };
     window.localStorage?.setItem(SAVE_STORAGE_KEY, JSON.stringify(payload));
@@ -628,9 +678,15 @@ function drawTableSurface() {
 }
 
 function drawContractPanel() {
-  const contract = CONTRACTS[game.contractIndex];
   renderer.fillRect(12, 253, 121, 59, 2);
   renderer.strokeRect(12, 253, 121, 59, 0, 2);
+  if (game.status === 'contract-choice' || game.contractIndex === null) {
+    renderer.printCentered('ЗАКАЗ', 72, 257, 15, 14, 8);
+    renderer.printCentered('КОНТРАКТА', 72, 274, 15, 14, 7);
+    renderer.printCentered(String(game.roundNumber + 1) + '/' + String(game.totalRounds || CONTRACTS.length * 4), 72, 291, 14, 14, 8);
+    return;
+  }
+  const contract = CONTRACTS[game.contractIndex];
   renderer.printCentered(contract.titleLines[0], 72, 257, 15, 14, 8);
   renderer.printCentered(contract.titleLines[1], 72, 274, 15, 14, 8);
   renderer.printCentered(contract.titleLines[2], 72, 291, contract.direction > 0 ? 10 : 11, 14, 8);
@@ -751,7 +807,7 @@ function drawResultOverlay() {
 
   const summary = isFinal
     ? `${winnerSeats.length === 1 ? 'ПОБЕДИТЕЛЬ' : 'НИЧЬЯ'}: ${winnerSeats.map(seat => names[seat]).join(', ')}`
-    : `ОБЩИЙ СЧЁТ ПОСЛЕ ${game.contractIndex + 1} ИЗ ${CONTRACTS.length}`;
+    : `ОБЩИЙ СЧЁТ ПОСЛЕ ${game.roundNumber + 1} ИЗ ${game.totalRounds || CONTRACTS.length}`;
   renderer.printCentered(summary, 320, 105, isFinal ? 14 : 10, 14, 7);
 
   for (let row = 0; row < displaySeats.length; row += 1) {
@@ -886,6 +942,22 @@ function playerHelpText() {
   return 'Ваш ход. Один тап выбирает карту, второй тап по ней кладёт её на стол.';
 }
 
+function illegalCardHint(hand, trick, contract, card) {
+  const leadSuit = trick?.[0]?.card?.suit;
+  if (leadSuit && hand.some(candidate => candidate.suit === leadSuit) && card.suit !== leadSuit) {
+    const symbol = SUIT_SYMBOLS[leadSuit] || '';
+    return `Нужно ходить ${symbol}: масть задаёт первая карта взятки. Вторая карта масть хода не меняет.`;
+  }
+  if (!leadSuit && contract?.heartLeadRestricted && card.suit === 'hearts' && hand.some(candidate => candidate.suit !== 'hearts')) {
+    return 'С червей нельзя начинать эту взятку, пока на руке есть другая масть.';
+  }
+  if (leadSuit && contract?.forceKingDiscard && !hand.some(candidate => candidate.suit === leadSuit)) {
+    const king = hand.find(candidate => candidate.suit === 'hearts' && candidate.rank === 13);
+    if (king && card.id !== king.id) return 'Нет масти хода: в этом контракте нужно сбросить Кинга.';
+  }
+  return 'Этой картой сейчас нельзя ходить: соблюдайте масть первой карты.';
+}
+
 function handleCardTap(x, y) {
   if (!game || game.status !== 'playing') return;
   if (inputLocked || game.currentSeat !== PLAYER_SEAT) {
@@ -918,7 +990,7 @@ function handleCardTap(x, y) {
   if (!legal.some(candidate => candidate.id === card.id)) {
     selectedCardId = card.id;
     render();
-    setHint('Этой картой сейчас нельзя ходить: соблюдайте масть первой карты.');
+    setHint(illegalCardHint(game.hands[PLAYER_SEAT], game.trick, CONTRACTS[game.contractIndex], card));
     tg?.HapticFeedback?.notificationOccurred?.('error');
     return;
   }
@@ -971,7 +1043,13 @@ async function continueCurrentTurn(token, extraDelay = 0) {
   if (!await gameDelay(AI_THINK_MS + extraDelay, token)) return;
   const contract = CONTRACTS[game.contractIndex];
   const hand = game.hands[game.currentSeat];
-  const card = chooseAiCard(hand, game.trick, contract, game.trickNumber, game.random);
+  const character = game.characters[game.currentSeat - 1];
+  const card = chooseAiCard(hand, game.trick, contract, game.trickNumber, game.random, {
+    character,
+    skill: character?.skill,
+    seat: game.currentSeat,
+    hands: game.hands,
+  });
   if (!card) return;
   await playCard(game.currentSeat, card, token);
 }
@@ -1001,7 +1079,8 @@ async function collectCompletedTrick(token) {
   game.trickWinnerSeat = null;
   render();
 
-  if (game.trickNumber >= 8) {
+  if (game.trickNumber >= 8 || contractIsResolved(CONTRACTS[game.contractIndex], game.hands)) {
+    game.hands = [[], [], [], []];
     await finishContract(token);
     return;
   }
@@ -1044,35 +1123,114 @@ async function playCard(seat, card, token) {
   tg?.HapticFeedback?.notificationOccurred?.('success');
 }
 
+function finishLocalGame() {
+  game.status = 'game-over';
+  removeSavedGame();
+  closeContractDialog();
+  render();
+  const { winningScore, winnerSeats } = matchResult(game.scores);
+  const winnerNames = winnerSeats.map(seat => game.playerNames[seat]).join(', ');
+  const resultText = winnerSeats.length === 1
+    ? `Победитель: ${winnerNames}`
+    : `Ничья: ${winnerNames}`;
+  setHint(`${resultText}. Лучший счёт: ${formatScore(winningScore)}. Для новой партии нажмите «Начать заново».`);
+  tg?.HapticFeedback?.notificationOccurred?.('success');
+}
+
 async function finishContract(token) {
   if (token !== runToken) return;
   game.status = 'contract-result';
   inputLocked = true;
+  closeContractDialog();
   saveCurrentGame();
   render();
-  setHint(`Раздача окончена. Следующая начнётся через несколько секунд.`);
+  setHint('Раздача окончена. Следующая начнётся через несколько секунд.');
 
   if (!await gameDelay(CONTRACT_RESULT_MS, token)) return;
-  if (game.contractIndex >= CONTRACTS.length - 1) {
-    game.status = 'game-over';
-    removeSavedGame();
-    render();
-    const { winningScore, winnerSeats } = matchResult(game.scores);
-    const winnerNames = winnerSeats.map(seat => game.playerNames[seat]).join(', ');
-    const resultText = winnerSeats.length === 1
-      ? `Победитель: ${winnerNames}`
-      : `Ничья: ${winnerNames}`;
-    setHint(`${resultText}. Лучший счёт: ${formatScore(winningScore)}. Для новой партии нажмите «Начать заново».`);
-    tg?.HapticFeedback?.notificationOccurred?.('success');
+  if (game.mode === GAME_MODES.ORDERED) {
+    if (game.roundNumber >= CONTRACTS.length * 4 - 1) finishLocalGame();
+    else startOrderedRound(game.roundNumber + 1);
     return;
   }
-
+  if (game.contractIndex >= CONTRACTS.length - 1) {
+    finishLocalGame();
+    return;
+  }
   startContract(game.contractIndex + 1);
+}
+
+function activateOrderedContract(contractIndex, token = runToken) {
+  if (!game || game.mode !== GAME_MODES.ORDERED || game.status !== 'contract-choice') return false;
+  const seat = game.ordererSeat;
+  const available = game.remainingContracts?.[seat] || [];
+  if (!available.includes(contractIndex)) return false;
+  game.remainingContracts[seat] = available.filter(index => index !== contractIndex);
+  game.contractIndex = contractIndex;
+  game.currentSeat = seat;
+  game.status = 'playing';
+  inputLocked = true;
+  closeContractDialog();
+  saveCurrentGame();
+  render();
+  setHint(`${CONTRACTS[contractIndex].name}. Заказ принят.`);
+  void continueCurrentTurn(token, 520);
+  return true;
+}
+
+async function continueContractChoice(token, extraDelay = 0) {
+  if (token !== runToken || !game || game.status !== 'contract-choice') return;
+  if (game.ordererSeat === PLAYER_SEAT) {
+    inputLocked = true;
+    render();
+    showContractChoice();
+    setHint('Ваш заказ. Выберите контракт для этой раздачи.');
+    return;
+  }
+  inputLocked = true;
+  closeContractDialog();
+  render();
+  setHint(`${game.playerNames[game.ordererSeat]} выбирает контракт…`);
+  if (!await gameDelay(AI_THINK_MS + extraDelay, token)) return;
+  const seat = game.ordererSeat;
+  const character = game.characters[seat - 1];
+  const available = game.remainingContracts[seat];
+  const contractIndex = chooseAiContract(game.hands[seat], available, game.random, {
+    character,
+    skill: character?.skill,
+    seat,
+    hands: game.hands,
+  });
+  activateOrderedContract(contractIndex, token);
+}
+
+function startOrderedRound(roundNumber) {
+  const token = ++runToken;
+  game.mode = GAME_MODES.ORDERED;
+  game.roundNumber = roundNumber;
+  game.totalRounds = CONTRACTS.length * 4;
+  game.contractIndex = null;
+  game.ordererSeat = (roundNumber + 1) % 4;
+  game.hands = dealHands(shuffleDeck(createDeck(), game.random));
+  game.trick = [];
+  game.trickWinnerSeat = null;
+  game.trickNumber = 0;
+  game.dealScores = [0, 0, 0, 0];
+  game.currentSeat = game.ordererSeat;
+  game.status = 'contract-choice';
+  selectedCardId = null;
+  inputLocked = true;
+  saveCurrentGame();
+  render();
+  void continueContractChoice(token, 720);
 }
 
 function startContract(contractIndex) {
   const token = ++runToken;
+  game.mode = GAME_MODES.CLASSIC;
+  game.roundNumber = contractIndex;
+  game.totalRounds = CONTRACTS.length;
   game.contractIndex = contractIndex;
+  game.ordererSeat = null;
   game.hands = dealHands(shuffleDeck(createDeck(), game.random));
   game.trick = [];
   game.trickWinnerSeat = null;
@@ -1131,6 +1289,13 @@ function buildNetworkTableGame(snapshot, room) {
     dealScores: rotateSeats(snapshot.dealScores, localSeat, 0),
     hands,
     trick,
+    mode: snapshot.mode || room.mode || GAME_MODES.CLASSIC,
+    roundNumber: Number.isInteger(snapshot.roundNumber) ? snapshot.roundNumber : (snapshot.contractIndex || 0),
+    totalRounds: Number(snapshot.totalRounds) || CONTRACTS.length,
+    ordererSeat: snapshot.ordererSeat === null || snapshot.ordererSeat === undefined
+      ? null
+      : visualSeat(snapshot.ordererSeat, localSeat),
+    availableContractIndexes: [...(snapshot.availableContractIndexes || [])],
     trickWinnerSeat: snapshot.trickWinnerSeat === null
       ? null
       : visualSeat(snapshot.trickWinnerSeat, localSeat),
@@ -1162,7 +1327,10 @@ function describeNetworkTurn() {
     return;
   }
 
-  if (game.status === 'playing' && game.currentSeat === PLAYER_SEAT) {
+  if (game.status === 'contract-choice') {
+    if (game.currentSeat === PLAYER_SEAT) setHint('Ваш заказ. Выберите контракт для этой раздачи.');
+    else setHint(`${game.playerNames[game.currentSeat]} выбирает контракт…`);
+  } else if (game.status === 'playing' && game.currentSeat === PLAYER_SEAT) {
     setHint(playerHelpText());
   } else if (game.status === 'playing') {
     const record = game.seatRecords[game.currentSeat];
@@ -1196,6 +1364,11 @@ function applyNetworkGame(snapshot) {
     game.status === 'trick-await'
     || (game.status === 'playing' && game.currentSeat === PLAYER_SEAT && game.legalCardIds.length > 0)
   );
+  if (game.status === 'contract-choice' && game.currentSeat === PLAYER_SEAT && game.availableContractIndexes.length > 0) {
+    showContractChoice();
+  } else {
+    closeContractDialog();
+  }
   el.loadingOverlay.hidden = true;
   el.startOverlay.hidden = true;
   if (el.networkDialog.open) el.networkDialog.close();
@@ -1283,6 +1456,7 @@ function renderNetworkLobby() {
 
 function applyNetworkRoom(room) {
   networkRoom = room;
+  selectedGameMode = room.mode === GAME_MODES.ORDERED ? GAME_MODES.ORDERED : GAME_MODES.CLASSIC;
   networkSetupRole = room.isHost ? 'host' : 'guest';
   renderNetworkLobby();
   if (networkSnapshot && screen === 'table') applyNetworkGame(networkSnapshot);
@@ -1324,7 +1498,7 @@ async function connectNetworkRoom() {
   setNetworkStatus(networkSetupRole === 'host' ? 'Создаём комнату…' : 'Входим в комнату…');
   try {
     const result = networkSetupRole === 'host'
-      ? await networkClient.create({ choices: selectedSeatChoices, displayName })
+      ? await networkClient.create({ choices: selectedSeatChoices, displayName, mode: selectedGameMode })
       : await networkClient.join({ roomId: networkSetupRoomId, displayName });
     applyNetworkRoom(result.room);
   } catch (error) {
@@ -1365,6 +1539,7 @@ function startMatch() {
     characters,
     playerNames: ['Товарищ', ...characters.map(character => character.name)],
     random: createSeededRandom(seed),
+    mode: selectedGameMode,
     scores: [0, 0, 0, 0],
     dealScores: [0, 0, 0, 0],
     hands: [[], [], [], []],
@@ -1372,11 +1547,18 @@ function startMatch() {
     trickWinnerSeat: null,
     trickNumber: 0,
     currentSeat: 0,
-    contractIndex: 0,
-    status: 'playing',
+    contractIndex: selectedGameMode === GAME_MODES.ORDERED ? null : 0,
+    roundNumber: 0,
+    totalRounds: selectedGameMode === GAME_MODES.ORDERED ? CONTRACTS.length * 4 : CONTRACTS.length,
+    ordererSeat: selectedGameMode === GAME_MODES.ORDERED ? 1 : null,
+    remainingContracts: selectedGameMode === GAME_MODES.ORDERED
+      ? Array.from({ length: 4 }, () => CONTRACTS.map(contract => contract.id))
+      : null,
+    status: selectedGameMode === GAME_MODES.ORDERED ? 'contract-choice' : 'playing',
   };
   screen = 'table';
-  startContract(0);
+  if (selectedGameMode === GAME_MODES.ORDERED) startOrderedRound(0);
+  else startContract(0);
 }
 
 function resetToPartnerPicker() {
@@ -1416,7 +1598,9 @@ function showStartMenu() {
   el.continueButton.setAttribute('aria-disabled', String(!saved));
   el.continueNetworkButton.hidden = !savedNetworkRoom;
   el.savedGameInfo.textContent = saved
-    ? `Сохранено: контракт ${saved.contractIndex + 1} из ${CONTRACTS.length}`
+    ? (saved.mode === GAME_MODES.ORDERED
+      ? `Сохранено: заказной режим, раздача ${saved.roundNumber + 1} из ${CONTRACTS.length * 4}`
+      : `Сохранено: контракт ${saved.contractIndex + 1} из ${CONTRACTS.length}`)
     : (savedNetworkRoom ? 'Можно вернуться в сетевую комнату' : 'Сохранённой игры нет');
   renderer.clear(2);
   renderer.present();
@@ -1431,6 +1615,7 @@ function continueSavedGame() {
   }
 
   const token = ++runToken;
+  selectedGameMode = saved.mode;
   selectedPartnerIds = [...saved.selectedPartnerIds];
   selectedSeatChoices = selectedPartnerIds.map(characterId => ({ type: 'bot', characterId }));
   selectedCardId = null;
@@ -1440,6 +1625,7 @@ function continueSavedGame() {
     characters,
     playerNames: ['Товарищ', ...characters.map(character => character.name)],
     random: createSeededRandom(saved.randomState),
+    mode: saved.mode,
     scores: [...saved.scores],
     dealScores: [...saved.dealScores],
     hands: saved.hands.map(hand => [...hand]),
@@ -1448,12 +1634,21 @@ function continueSavedGame() {
     trickNumber: saved.trickNumber,
     currentSeat: saved.currentSeat,
     contractIndex: saved.contractIndex,
+    roundNumber: saved.roundNumber,
+    totalRounds: saved.mode === GAME_MODES.ORDERED ? CONTRACTS.length * 4 : CONTRACTS.length,
+    ordererSeat: saved.ordererSeat,
+    remainingContracts: saved.remainingContracts?.map(list => [...list]) ?? null,
     status: saved.status,
   };
   screen = 'table';
   inputLocked = true;
   el.startOverlay.hidden = true;
 
+  if (game.status === 'contract-choice') {
+    render();
+    void continueContractChoice(token, 260);
+    return;
+  }
   if (game.status === 'trick-await') {
     inputLocked = false;
     setHint(`${game.playerNames[game.currentSeat]} берёт взятку. Нажмите в любую часть экрана.`);
@@ -1523,7 +1718,12 @@ el.canvas.addEventListener('pointercancel', () => {
 el.canvas.addEventListener('contextmenu', event => event.preventDefault());
 
 function updatePauseState() {
-  paused = document.hidden || el.rulesDialog.open || el.aboutDialog.open || el.networkDialog.open;
+  paused = document.hidden
+    || el.rulesDialog.open
+    || el.aboutDialog.open
+    || el.networkDialog.open
+    || el.modeDialog.open
+    || el.contractDialog.open;
 }
 
 document.addEventListener('visibilitychange', updatePauseState);
@@ -1542,6 +1742,43 @@ function openInfoDialog(dialog) {
   updatePauseState();
 }
 
+function closeContractDialog() {
+  if (el.contractDialog.open) el.contractDialog.close();
+}
+
+function showContractChoice() {
+  if (!game || game.status !== 'contract-choice' || game.currentSeat !== PLAYER_SEAT) return;
+  const available = networkMode
+    ? game.availableContractIndexes
+    : (game.remainingContracts?.[PLAYER_SEAT] || []);
+  el.contractChoiceTitle.textContent = 'Заказать контракт';
+  el.contractChoiceLead.textContent = `Раздача ${game.roundNumber + 1} из ${game.totalRounds || CONTRACTS.length * 4}. Этот контракт больше нельзя будет заказать вам ещё раз.`;
+  el.contractChoices.replaceChildren();
+  for (const index of available) {
+    const contract = CONTRACTS[index];
+    if (!contract) continue;
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.dataset.contractIndex = String(index);
+    button.textContent = `${contract.titleLines[0]} ${contract.titleLines[1]} (${contract.titleLines[2]})`;
+    el.contractChoices.append(button);
+  }
+  if (!el.contractDialog.open) el.contractDialog.showModal();
+  updatePauseState();
+}
+
+function openModeSelection() {
+  if (!el.modeDialog.open) el.modeDialog.showModal();
+  updatePauseState();
+}
+
+function chooseGameMode(mode) {
+  selectedGameMode = mode === GAME_MODES.ORDERED ? GAME_MODES.ORDERED : GAME_MODES.CLASSIC;
+  if (el.modeDialog.open) el.modeDialog.close();
+  updatePauseState();
+  resetToPartnerPicker();
+}
+
 el.continueButton.addEventListener('click', continueSavedGame);
 el.continueNetworkButton.addEventListener('click', () => {
   const saved = networkClient.savedRoom();
@@ -1551,7 +1788,22 @@ el.continueNetworkButton.addEventListener('click', () => {
   }
   openNetworkSetup({ role: 'guest', roomId: saved.roomId, displayName: saved.displayName });
 });
-el.newGameButton.addEventListener('click', resetToPartnerPicker);
+el.newGameButton.addEventListener('click', openModeSelection);
+el.classicModeButton.addEventListener('click', () => chooseGameMode(GAME_MODES.CLASSIC));
+el.orderedModeButton.addEventListener('click', () => chooseGameMode(GAME_MODES.ORDERED));
+el.modeDialog.addEventListener('close', updatePauseState);
+el.contractDialog.addEventListener('close', updatePauseState);
+el.contractDialog.addEventListener('cancel', event => event.preventDefault());
+el.contractChoices.addEventListener('click', event => {
+  const button = event.target?.closest?.('button[data-contract-index]');
+  if (!button || !game || game.status !== 'contract-choice') return;
+  const contractIndex = Number(button.dataset.contractIndex);
+  if (!Number.isInteger(contractIndex)) return;
+  if (networkMode) {
+    networkCommandPending = true;
+    if (!networkClient.chooseContract(contractIndex)) networkCommandPending = false;
+  } else activateOrderedContract(contractIndex);
+});
 el.restartButton.addEventListener('click', () => {
   if (networkMode) {
     leaveNetworkView({ forget: false });
@@ -1654,6 +1906,7 @@ window.__kingDebug = {
       selectedCardId,
       inputLocked,
       networkMode,
+      selectedGameMode,
       networkRoom: networkRoom ? {
         roomId: networkRoom.roomId,
         localSeat: networkRoom.localSeat,
@@ -1662,8 +1915,11 @@ window.__kingDebug = {
         seats: networkRoom.seats.map(record => ({ ...record })),
       } : null,
       game: game ? {
+        mode: game.mode,
         status: game.status,
         contractIndex: game.contractIndex,
+        roundNumber: game.roundNumber,
+        ordererSeat: game.ordererSeat,
         currentSeat: game.currentSeat,
         trickNumber: game.trickNumber,
         trick: game.trick.map(entry => ({ seat: entry.seat, cardId: entry.card.id })),
@@ -1676,7 +1932,7 @@ window.__kingDebug = {
         })),
         handCounts: game.hands.map(hand => hand.length),
         playerCards: game.hands[0].map(card => ({ id: card.id, x: playerCardLayout().find(item => item.card.id === card.id)?.x })),
-        legalPlayerCardIds: game.status === 'playing'
+        legalPlayerCardIds: game.status === 'playing' && game.contractIndex !== null
           ? (networkMode
             ? [...(game.legalCardIds || [])]
             : legalCards(game.hands[0], game.trick, CONTRACTS[game.contractIndex]).map(card => card.id))

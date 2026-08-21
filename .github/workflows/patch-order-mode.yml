@@ -27,8 +27,10 @@ jobs:
         run: node scripts/fix-patch-script.mjs
       - name: Apply deterministic patch
         run: node scripts/patch-order-mode.mjs
+      - name: Adapt integration tests
+        run: node scripts/patch-tests-order-mode.mjs
       - name: Remove one-shot patch helpers
-        run: rm scripts/fix-patch-script.mjs scripts/patch-order-mode.mjs .github/workflows/patch-order-mode.yml
+        run: rm scripts/fix-patch-script.mjs scripts/patch-order-mode.mjs scripts/patch-tests-order-mode.mjs .github/workflows/patch-order-mode.yml
       - name: Run tests
         run: npm test
       - name: Check syntax

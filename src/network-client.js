@@ -143,12 +143,13 @@ export class KingRoomClient {
     return body;
   }
 
-  async create({ choices, displayName }) {
+  async create({ choices, displayName, mode = 'classic' }) {
     await this.loadConfig();
     this.displayName = cleanDisplayName(displayName);
     const body = await this.post('/api/rooms', {
       ...this.authBody(this.displayName),
       choices,
+      mode,
     });
     this.roomId = body.room.roomId;
     this.saveActiveRoom();
@@ -241,6 +242,7 @@ export class KingRoomClient {
   }
 
   startGame() { return this.send('startGame'); }
+  chooseContract(contractIndex) { return this.send('chooseContract', { contractIndex }); }
   playCard(cardId) { return this.send('playCard', { cardId }); }
   collectTrick() { return this.send('collectTrick'); }
   advance() { return this.send('advance'); }

@@ -127,6 +127,13 @@ test('native UI handles mobile taps and completes all fourteen contracts', { tim
     '#loadingBar': 'loadingBar',
     '#retryButton': 'retryButton',
     '#startOverlay': 'startOverlay',
+    '#modeDialog': 'modeDialog',
+    '#classicModeButton': 'classicModeButton',
+    '#orderedModeButton': 'orderedModeButton',
+    '#contractDialog': 'contractDialog',
+    '#contractChoiceTitle': 'contractChoiceTitle',
+    '#contractChoiceLead': 'contractChoiceLead',
+    '#contractChoices': 'contractChoices',
     '#savedGameInfo': 'savedGameInfo',
     '#continueButton': 'continueButton',
     '#continueNetworkButton': 'continueNetworkButton',
@@ -235,6 +242,8 @@ test('native UI handles mobile taps and completes all fourteen contracts', { tim
   assert.equal(element('continueButton').disabled, true);
   assert.equal(element('savedGameInfo').textContent, 'Сохранённой игры нет');
   element('newGameButton').emit('click');
+  assert.equal(element('modeDialog').open, true);
+  element('classicModeButton').emit('click');
   await eventually(() => debug.snapshot().screen === 'partners');
   assert.equal(element('soundButton').textContent, 'Звук: вкл');
   element('soundButton').emit('click');
@@ -262,7 +271,8 @@ test('native UI handles mobile taps and completes all fourteen contracts', { tim
   });
   assert.match(element('gameHint').textContent, /^Ваш ход\./);
   const saveBeforeReload = JSON.parse(storedValues.get('king-single-player-save'));
-  assert.equal(saveBeforeReload.version, 1);
+  assert.equal(saveBeforeReload.version, 2);
+  assert.equal(saveBeforeReload.mode, 'classic');
   assert.equal(saveBeforeReload.contractIndex, playerTurn.game.contractIndex);
   assert.deepEqual(saveBeforeReload.scores, playerTurn.game.scores);
 

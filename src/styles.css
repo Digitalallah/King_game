@@ -646,3 +646,30 @@ a {
     grid-row: span 2;
   }
 }
+
+
+.mode-actions {
+  display: grid;
+  gap: 8px;
+}
+
+.contract-dialog {
+  width: min(620px, calc(100vw - 24px));
+}
+
+.contract-choice-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+  margin-top: 12px;
+}
+
+.contract-choice-grid button {
+  min-height: 42px;
+}
+
+@media (max-width: 560px) {
+  .contract-choice-grid {
+    grid-template-columns: 1fr;
+  }
+}

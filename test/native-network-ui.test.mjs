@@ -96,7 +96,9 @@ test('native picker creates a mixed lobby, waits for the guest, and plays throug
 
   const ids = [
     'gameCanvas', 'avatarLayer', 'orientationHint', 'loadingOverlay', 'loadingText', 'loadingBar',
-    'retryButton', 'startOverlay', 'savedGameInfo', 'continueButton', 'continueNetworkButton',
+    'retryButton', 'startOverlay', 'modeDialog', 'classicModeButton', 'orderedModeButton',
+    'contractDialog', 'contractChoiceTitle', 'contractChoiceLead', 'contractChoices',
+    'savedGameInfo', 'continueButton', 'continueNetworkButton',
     'newGameButton', 'restartButton', 'soundButton', 'rulesButton', 'aboutButton', 'rulesDialog',
     'aboutDialog', 'networkDialog', 'networkDialogTitle', 'networkLead', 'networkNameInput',
     'networkConnectButton', 'networkCloseButton', 'networkStatus', 'networkLobby', 'networkRoomCode',
@@ -184,6 +186,7 @@ test('native picker creates a mixed lobby, waits for the guest, and plays throug
   const debug = await eventually(() => window.__kingDebug);
   await eventually(() => debug.snapshot().screen === 'start');
   element('newGameButton').emit('click');
+  element('classicModeButton').emit('click');
   tap(70, 160);
   tap(200, 60);
   tap(280, 60);
@@ -199,7 +202,9 @@ test('native picker creates a mixed lobby, waits for the guest, and plays throug
   socket.open();
   await eventually(() => debug.snapshot().networkRoom?.roomId === roomId);
   assert.equal(element('networkStartButton').disabled, true);
-  assert.equal(JSON.parse(apiRequests.find(request => request.url.pathname === '/api/rooms').init.body).choices[0].type, 'human');
+  const createBody = JSON.parse(apiRequests.find(request => request.url.pathname === '/api/rooms').init.body);
+  assert.equal(createBody.choices[0].type, 'human');
+  assert.equal(createBody.mode, 'classic');
 
   const readyRoom = structuredClone(initialRoom);
   readyRoom.seats[0].connected = true;
